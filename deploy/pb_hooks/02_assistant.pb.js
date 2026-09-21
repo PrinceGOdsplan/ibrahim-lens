@@ -1296,28 +1296,40 @@ if (!ASSISTANT_SYSTEM_PROMPT) {
 }
 console.log("assistant: system prompt", ASSISTANT_SYSTEM_PROMPT ? "loaded" : "fallback")
 
+function loadSystemPromptBase() {
+  try {
+    var live = toString($os.readFile("/pb_hooks/assistant-system-prompt.txt") || "").trim()
+    if (live) {
+      ASSISTANT_SYSTEM_PROMPT = live
+      return live
+    }
+  } catch (_) {}
+  try {
+    var alt = toString(
+      $os.readFile($filepath.join($app.dataDir(), "..", "deploy", "pb_hooks", "assistant-system-prompt.txt")) || "",
+    ).trim()
+    if (alt) {
+      ASSISTANT_SYSTEM_PROMPT = alt
+      return alt
+    }
+  } catch (_) {}
+  if (ASSISTANT_SYSTEM_PROMPT) return ASSISTANT_SYSTEM_PROMPT
+  return (
+    "You are Assistant in Ibrahim Lens Studio for one photographer.\n" +
+    "Prefer acting over explaining. Ordinary English; never name tools.\n" +
+    "Confirm for money, deletes, mail, password. Safe text applies immediately.\n" +
+    "You do not see photograph pixels.\n"
+  )
+}
+
 function systemPrompt(digest) {
-  var base = ASSISTANT_SYSTEM_PROMPT
-  if (!base) {
-    base =
-      "You are Assistant in Ibrahim Lens Studio for one photographer.\n" +
-      "Use ordinary English. Match language register. Never name internal tools.\n" +
-      "Look up records by name. Confirm for money, deletes, Website, and mail.\n" +
-      "You do not see photograph pixels. Prefer acting over explaining.\n"
-  }
+  var base = loadSystemPromptBase()
   var hard =
-    "OPERATING DOCTRINE (follow these; tool schemas are the source of truth for what you can call):\n" +
-    "1. Prefer action over explanation. For list/show/find/how-many/what’s-my… Studio asks: call the matching read tool first — do not refuse from memory or say you cannot pull Studio data.\n" +
-    "2. Never invent records, money, or “Done”. Never name tools, APIs, backticks, or “(ID: …)” in chat — speak Studio English (names, dates, statuses).\n" +
-    "3. Refuse only after a tool failed, returned empty when it should not, or the ask needs files/pixels you cannot touch. Then one short sentence + navigate handoff if useful. Forbidden refusal patterns unless truly blocked: “I cannot list…”, “I cannot access the database”, “I cannot control the UI”, “I only do tasks”, “I cannot give opinions”, “I cannot generate phrases/captions”, “I lack creativity”.\n" +
-    "4. Money: earned = paid to the photographer; uncollected = unpaid fees. Never say “collected”. Periods (last_month, this_week, YYYY-MM, august, …) work — never say you cannot filter by time.\n" +
-    "5. Shell: night/light look and sidebar collapse/expand are supported. Handoffs (navigate only — never claim Done until Studio saves): uploads, Portfolio add/remove/reorder, Hero slideshow, About photo, brand logo, Assistant/profile pictures, Work delete.\n" +
-    "6. Mail a named client → gallery Delivery resend with their name. Test notice mail only if they ask to test notifications.\n" +
-    "7. Short acks (ok, thanks): brief reply only — do not volunteer Needs-you. Grounded business advice from desk facts is allowed.\n" +
-    "8. Confirm only for money changes, declines/cancels, deletes (including bulk photo delete), outbound mail, password/login email, Delivery revoke/restore, feedback→testimonial promote, and people create. Safe text edits (captions, FAQ, Website globals/SEO/testimonials, tags, Accept, album/Work create/rename, people update) run immediately — never ask Confirm for photo renames. For many renames use ONE library_write bulk_media_captions with every id+caption (or vault+captions[]). Never rename one-by-one when many are requested.\n" +
-    "9. When asked for catchy/random/creative photo names or Website draft copy, invent distinct short phrases yourself and apply them — that is Studio writing help, not fabricating fake clients or money. Never say you lack creativity or cannot generate phrases.\n" +
-    "10. Finish every part of a multi-step ask before stopping. Match by name before asking for ids. Page through long lists. Featured ≠ Portfolio.\n" +
-    "11. After a write, the app reports what changed — never reply with only “Done”, “Updated”, or “FAQ updated”. Name the field and the new value (or a short quote of it).\n\n"
+    "DOCTRINE: (1) Call tools for Studio facts — do not refuse list/show/find from memory. " +
+    "(2) Never invent records/money/Done; never name tools or raw IDs in chat. " +
+    "(3) Confirm only money, deletes, mail, password, decline/cancel, Delivery revoke/restore, people create; safe text and bulk caption renames apply immediately. " +
+    "(4) Invent creative photo names / Website draft copy when asked. " +
+    "(5) After writes, name the field and new value — not only “Done”.\n\n"
   return hard + base + "\n\n# Runtime digest\n\n" + digest
 }
 
@@ -1343,10 +1355,10 @@ function isCapabilityQuestion(text) {
 
 function capabilityAnswer() {
   return (
-    "I run this Studio desk with you in ordinary English — names are enough.\n\n" +
-    "I look up live Studio state (Needs-you, notifications, people, bookings, money earned/uncollected, Gallery names and photos, Albums, Work, Inbox, Deliveries, FAQ, testimonials, SEO, Website copy, Settings), prepare changes, and carry them out after Confirm when the change matters (money, deletes, mail, password, decline/cancel). Safe text edits apply right away. I can open hubs, switch night/light look, close or open the sidebar, open Pick photos for Deliveries/Albums/Work/Featured, and give short advice grounded in desk facts.\n\n" +
-    "I open a Studio sheet for uploads, Portfolio wall membership, Hero slideshow, About photo, and logos — I do not drive the file picker or see photograph pixels. Change my name and picture under Settings → Assistant.\n\n" +
-    "Ask what you need; I will look it up and act."
+    "I run this Studio desk with you in ordinary English — names are enough. " +
+    "I look things up, make safe edits right away, and Confirm when it matters (money, deletes, mail, password). " +
+    "I can open hubs, night/light, sidebar, and Pick photos. I don’t see photograph pixels or drive the file picker. " +
+    "Ask what you need."
   )
 }
 
