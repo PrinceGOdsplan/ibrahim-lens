@@ -732,11 +732,12 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
             }
             if (summaries.length) {
               setMessages((prev) => {
-                const text = summaries.join(' ')
+                const text = summaries.join('\n')
                 const next = [...prev]
                 const last = next[next.length - 1]
-                if (last?.role === 'assistant' && last.kind !== 'confirm') {
-                  next[next.length - 1] = { ...last, text: [last.text, text].filter(Boolean).join('\n') }
+                // Prefer the concrete write outcome over a vague model "Done/Updated".
+                if (last?.role === 'assistant' && last.kind !== 'confirm' && last.kind !== 'pick') {
+                  next[next.length - 1] = { ...last, text, kind: 'reply', confirm: null, pick: null }
                 } else {
                   next.push({ role: 'assistant', text, kind: 'reply' })
                 }
@@ -970,30 +971,40 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
         setMessages((prev) => [...prev, { role: 'assistant' as const, text: msg, kind: 'error' }])
         return
       }
-      if (result.messages) {
-        const msgs = [...result.messages]
-        const summary = doneText(result.summary, '')
-        if (summary && msgs.length) {
-          const last = msgs[msgs.length - 1]
-          if (last?.role === 'assistant' && last.kind !== 'confirm') {
-            msgs[msgs.length - 1] = { ...last, text: summary, kind: 'reply', confirm: null }
-          } else if (summary && last?.kind === 'confirm') {
-            // keep next confirm; prepend a done line
-            msgs.splice(msgs.length - 1, 0, { role: 'assistant', text: summary, kind: 'reply' })
-          }
-        }
-        setMessages(msgs)
+      const summary = doneText(result.summary, 'Saved.')
+      let msgs: AssistantUiMessage[] = result.messages ? [...result.messages] : []
+      // Drop leftover confirm chrome; keep only a concrete outcome line.
+      msgs = msgs
+        .filter((m) => m.kind !== 'confirm' && m.kind !== 'pick')
+        .map((m) =>
+          m.role === 'assistant' && m.kind === 'reply'
+            ? { ...m, confirm: null, pick: null }
+            : m,
+        )
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant' && last.kind === 'reply') {
+        msgs[msgs.length - 1] = { ...last, text: summary, kind: 'reply', confirm: null, pick: null }
       } else {
-        const text = doneText(result.summary, 'Saved.')
-        setMessages((prev) => [...prev, { role: 'assistant' as const, text, kind: 'reply' }])
+        msgs.push({ role: 'assistant', text: summary, kind: 'reply' })
       }
 
       if (result.nextConfirm) {
         const queue = result.confirmQueue?.length ? result.confirmQueue : [result.nextConfirm]
+        msgs.push({
+          role: 'assistant',
+          text: queue.length > 1 ? `Confirm these ${queue.length} changes.` : 'Confirm this change.',
+          kind: 'confirm',
+          confirm: result.nextConfirm,
+          confirmQueue: queue,
+        })
+        setMessages(msgs)
+        void persistAssistantMessages(msgs)
         await showNextConfirm(result.nextConfirm, queue)
         return
       }
 
+      setMessages(msgs)
+      void persistAssistantMessages(msgs)
       setConfirmLive(null)
       setPendingConfirm(null)
       setConfirmQueue([])
@@ -1048,10 +1059,18 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
       setPendingConfirm(null)
       setConfirmQueue([])
       if (summaries.length) {
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant' as const, text: summaries.join(' '), kind: 'reply' },
-        ])
+        setMessages((prev) => {
+          const text = summaries.join('\n')
+          const next = [...prev.filter((m) => m.kind !== 'confirm' && m.kind !== 'pick')]
+          const last = next[next.length - 1]
+          if (last?.role === 'assistant' && last.kind === 'reply') {
+            next[next.length - 1] = { ...last, text, kind: 'reply', confirm: null, pick: null }
+          } else {
+            next.push({ role: 'assistant', text, kind: 'reply' })
+          }
+          void persistAssistantMessages(next)
+          return next
+        })
       }
       if (batchRes.continueAgenda) {
         await runTurn({
