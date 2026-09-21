@@ -116,6 +116,8 @@ export default defineConfig(({ command, mode }) => {
     server: {
       host: '127.0.0.1',
       port: 5173,
+      // Cloudflare quick tunnels (*.trycloudflare.com) hit Vite with a foreign Host header.
+      allowedHosts: ['.trycloudflare.com'],
       watch: {
         // Seed stills / PB data must not be watched — Windows EBUSY crashes Vite
         ignored: ['**/scripts/seed-assets/**', '**/pb_data/**'],
