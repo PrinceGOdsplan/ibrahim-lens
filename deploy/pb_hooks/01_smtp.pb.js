@@ -1,16 +1,32 @@
 /// <reference path="../pb_data/types.d.ts" />
 
+// PocketBase JSVM: keep helpers inside the callback (sibling fns are not visible).
 onBootstrap((e) => {
   e.next()
-  const key = ($os.getenv("RESEND_API_KEY") || "").trim()
-  if (!key) return
+  var key = ""
+  try {
+    key = String($os.getenv("RESEND_API_KEY") || "").trim()
+  } catch (_) {}
+  if (!key) {
+    try {
+      key = String($os.readFile($filepath.join($app.dataDir(), ".resend_key")) || "").trim()
+    } catch (_) {}
+  }
+  if (!key) {
+    console.log("SMTP skipped: RESEND_API_KEY missing (env and /pb_data/.resend_key)")
+    return
+  }
 
-  const from = ($os.getenv("SMTP_FROM") || "hello@ibrahimlens.com.ng").trim()
-  const fromName = ($os.getenv("SMTP_FROM_NAME") || "Ibrahim Lens").trim()
+  var from = "hello@ibrahimlens.com.ng"
+  var fromName = "Ibrahim Lens"
+  try {
+    from = String($os.getenv("SMTP_FROM") || from).trim() || from
+    fromName = String($os.getenv("SMTP_FROM_NAME") || fromName).trim() || fromName
+  } catch (_) {}
 
   try {
-    const settings = $app.settings()
-    const smtp = settings.smtp
+    var settings = $app.settings()
+    var smtp = settings.smtp
     if (
       smtp.enabled &&
       smtp.host === "smtp.resend.com" &&
@@ -21,6 +37,7 @@ onBootstrap((e) => {
       settings.meta.senderAddress === from &&
       settings.meta.senderName === fromName
     ) {
+      console.log("SMTP already configured via Resend; From " + fromName + " <" + from + ">")
       return
     }
 

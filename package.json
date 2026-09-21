@@ -12,7 +12,8 @@
     "seed:ig": "tsx scripts/fetch-ig-seed.ts",
     "seed:volume": "tsx scripts/seed-volume.ts",
     "seed:volume:clear": "tsx scripts/clear-volume.ts",
-    "mail:dns": "tsx scripts/check-mail-dns.ts"
+    "mail:dns": "tsx scripts/check-mail-dns.ts",
+    "schema:apply": "tsx scripts/apply-schema.ts"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",
