@@ -315,8 +315,42 @@ async function liveConfirmLabel(action: string, payload: Record<string, unknown>
   }
   if (action === 'delete_record' && payload.id && payload.collection) {
     try {
-      await pb.collection(String(payload.collection)).getOne(String(payload.id))
-      return { ...base, blocked: false }
+      const col = String(payload.collection)
+      if (col === 'people') {
+        const row = await pb.collection('people').getOne<{ name?: string }>(String(payload.id))
+        const name = String(payload.name || row.name || 'Client').trim() || 'Client'
+        let bookingN = 0
+        let deliveryN = 0
+        try {
+          const refs = await Promise.all([
+            pb.collection('bookings').getList(1, 1, { filter: `person="${payload.id}"`, skipTotal: false }),
+            pb.collection('deliveries').getList(1, 1, { filter: `person="${payload.id}"`, skipTotal: false }),
+          ])
+          bookingN = refs[0].totalItems || 0
+          deliveryN = refs[1].totalItems || 0
+        } catch {
+          /* ignore count errors */
+        }
+        const bits: string[] = []
+        if (bookingN) bits.push(`${bookingN} booking${bookingN === 1 ? '' : 's'}`)
+        if (deliveryN) bits.push(`${deliveryN} Delivery${deliveryN === 1 ? '' : 's'}`)
+        return {
+          title: `Remove ${name}?`,
+          body: bits.length
+            ? `Also deletes their ${bits.join(' and ')}.`
+            : 'Removes this client from Studio.',
+          blocked: false,
+        }
+      }
+      if (col === 'bookings') {
+        const row = await pb.collection('bookings').getOne<{
+          expand?: { person?: { name?: string } }
+        }>(String(payload.id), { expand: 'person' })
+        const name = row.expand?.person?.name || String(payload.name || 'Client')
+        return { title: `Delete ${name}'s booking?`, body: 'This cannot be undone.', blocked: false }
+      }
+      await pb.collection(col).getOne(String(payload.id))
+      return { ...base, body: String(payload.name || payload.label || base.body || 'This cannot be undone.'), blocked: false }
     } catch {
       return { title: 'Cannot confirm', body: 'That record is gone.', blocked: true, stale: true }
     }

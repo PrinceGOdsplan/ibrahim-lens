@@ -241,8 +241,25 @@ export function confirmPreview(action: string, payload: Record<string, unknown>)
     return { title: 'Create this booking?', body: bits.join(' · ') }
   }
   if (action === 'delete_record') {
-    const col = String(payload.collection || 'record').replace(/_/g, ' ')
-    return { title: `Delete this ${col}?`, body: String(payload.id || '') }
+    const col = String(payload.collection || 'record')
+    const label = String(payload.name || payload.label || payload.title || '').trim()
+    if (col === 'people') {
+      return {
+        title: 'Remove this client?',
+        body: label || 'Client and their bookings / Deliveries',
+      }
+    }
+    if (col === 'bookings') {
+      return { title: 'Delete this booking?', body: label || 'Booking' }
+    }
+    if (col === 'media') {
+      return { title: 'Delete this photo?', body: label || 'Photo' }
+    }
+    if (col === 'deliveries') {
+      return { title: 'Delete this Delivery?', body: label || 'Delivery' }
+    }
+    const nice = col.replace(/_/g, ' ').replace(/s$/, '')
+    return { title: `Delete this ${nice}?`, body: label || nice }
   }
   if (action === 'website_write') {
     const kind = String(payload.kind || 'Website write')

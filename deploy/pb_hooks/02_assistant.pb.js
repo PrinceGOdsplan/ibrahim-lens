@@ -1234,12 +1234,14 @@ function toolDefs() {
       type: "function",
       function: {
         name: "delete_record",
-        description: "Delete a person, booking, delivery, media, FAQ item, or testimonial. Always Confirm. Not albums or Work.",
+        description:
+          "Delete a person, booking, delivery, media, FAQ, or testimonial. For people, pass name when known (and id from search_people). Removing a client also removes their bookings and Deliveries — say so in Confirm. Always Confirm. Queue one Confirm per person when removing several. Never show raw ids in chat.",
         parameters: {
           type: "object",
           properties: {
             collection: { type: "string" },
             id: { type: "string" },
+            name: { type: "string", description: "Display name for Confirm (e.g. Unknown client)" },
           },
           required: ["collection", "id"],
         },
@@ -1367,7 +1369,8 @@ function systemPrompt(digest) {
     "(3) Confirm only money, deletes, mail, password, decline/cancel, Delivery revoke/restore, people create; safe text and bulk caption renames apply immediately. " +
     "(4) Invent creative photo names / Website draft copy when asked — never invent clients, bookings, fees, or phones. " +
     "(5) After writes, name the field and new value — not only “Done”. " +
-    "(6) If they ask what details you need or how to do something, answer in words — do not create_booking or other writes.\n\n"
+    "(6) If they ask what details you need or how to do something, answer in words — do not create_booking or other writes. " +
+    "(7) Never show raw record ids in chat or Confirm. When removing a client, remove their bookings and Deliveries too and say so. Finish every named person in a multi-remove ask.\n\n"
   return hard + base + "\n\n# Runtime digest\n\n" + digest
 }
 
@@ -3818,24 +3821,92 @@ routerAdd(
       var colName = String(payload.collection || "")
       var allowed = { people: 1, bookings: 1, deliveries: 1, media: 1, faq_items: 1, testimonials: 1 }
       if (!allowed[colName]) throw new BadRequestError("Cannot delete that.")
-      var del = liveOrThrow(colName, payload.id)
-      if (colName === "people") {
+      var delId = String(payload.id || "").trim()
+      if (!delId && colName === "people" && payload.name) {
         try {
-          var linked = $app.findRecordsByFilter("bookings", 'person = "' + payload.id + '"', "", 1, 0)
-          if (linked && linked.length) {
-            throw new BadRequestError("That person still has bookings. Delete or reassign the bookings first.")
+          var nameQ = String(payload.name).replace(/"/g, "")
+          var named = $app.findRecordsByFilter("people", 'name ~ "' + nameQ + '"', "-created", 5, 0)
+          if (named && named.length === 1) delId = named[0].id
+          else if (named && named.length > 1) {
+            var ni
+            var exact = null
+            for (ni = 0; ni < named.length; ni++) {
+              if (String(named[ni].getString("name") || "").toLowerCase() === nameQ.toLowerCase()) {
+                exact = named[ni]
+                break
+              }
+            }
+            if (exact) delId = exact.id
+            else throw new BadRequestError("Several people match “" + nameQ + "” — say which one.")
           }
-        } catch (linkCheck) {
-          if (String(linkCheck).indexOf("still has bookings") >= 0) throw linkCheck
+        } catch (nameErr) {
+          if (String(nameErr).indexOf("Several people") >= 0) throw nameErr
         }
       }
+      if (!delId) throw new BadRequestError("Which record should be deleted?")
+      var del = liveOrThrow(colName, delId)
+
+      if (colName === "people") {
+        var personName = String(payload.name || del.getString("name") || "Client").trim() || "Client"
+        var removedBookings = 0
+        var removedDeliveries = 0
+        try {
+          var linkedBooks = $app.findRecordsByFilter("bookings", 'person = "' + delId + '"', "", 200, 0)
+          var lb
+          for (lb = 0; lb < linkedBooks.length; lb++) {
+            try {
+              $app.delete(linkedBooks[lb])
+              removedBookings++
+            } catch (_) {}
+          }
+        } catch (_) {}
+        try {
+          var linkedDels = $app.findRecordsByFilter("deliveries", 'person = "' + delId + '"', "", 200, 0)
+          var ld
+          for (ld = 0; ld < linkedDels.length; ld++) {
+            try {
+              $app.delete(linkedDels[ld])
+              removedDeliveries++
+            } catch (_) {}
+          }
+        } catch (_) {}
+        $app.delete(del)
+        var bits = []
+        if (removedBookings) bits.push(removedBookings + " booking" + (removedBookings === 1 ? "" : "s"))
+        if (removedDeliveries) bits.push(removedDeliveries + " Delivery" + (removedDeliveries === 1 ? "" : "s"))
+        return finishWrite({
+          ok: true,
+          collection: "people",
+          id: delId,
+          deleted: true,
+          summary: bits.length
+            ? "Removed " + personName + " and their " + bits.join(" and ") + "."
+            : "Removed " + personName + ".",
+        })
+      }
+
+      var label = String(payload.name || payload.label || payload.title || "").trim()
+      if (!label && colName === "media") {
+        try {
+          label = del.getString("caption") || del.getString("file") || ""
+        } catch (_) {}
+      }
+      if (!label && colName === "bookings") {
+        try {
+          if (del.get("person")) {
+            var bp = $app.findRecordById("people", del.get("person"))
+            label = bp.getString("name")
+          }
+        } catch (_) {}
+      }
       $app.delete(del)
+      var nice = colName.replace(/_/g, " ").replace(/s$/, "")
       return finishWrite({
         ok: true,
         collection: colName,
-        id: payload.id,
+        id: delId,
         deleted: true,
-        summary: "Deleted that " + colName.replace(/_/g, " ").replace(/s$/, "") + ".",
+        summary: label ? "Deleted " + label + "." : "Deleted that " + nice + ".",
       })
     }
 
