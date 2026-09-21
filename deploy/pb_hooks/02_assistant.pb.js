@@ -222,10 +222,33 @@ function stillMyFlight(row, token) {
 function preparedSpeak(spoken, fallback) {
   var t = String(spoken || "").trim()
   if (!t) return fallback
-  if (/\b(done|updated|created|deleted|sent|saved|changed|renamed|linked)\b/i.test(t) && !/\bconfirm\b/i.test(t)) {
+  // Drop empty completion claims; keep lines that name values (quotes, naira, names).
+  if (/^(done\.?|updated\.?|saved\.?|ok\.?|changed\.?)$/i.test(t)) return fallback
+  if (
+    /\b(done|updated|saved|changed|created|deleted|sent|renamed)\b/i.test(t) &&
+    t.length < 48 &&
+    !/[“"₦]/.test(t) &&
+    !/\bconfirm\b/i.test(t)
+  ) {
     return fallback
   }
   return t
+}
+
+function isVagueSpeak(spoken) {
+  var t = String(spoken || "").trim()
+  if (!t) return true
+  if (/^(done\.?|updated\.?|saved\.?|ok\.?|changed\.?)$/i.test(t)) return true
+  if (
+    /\b(done|updated|saved|changed|i('ve| have)? (updated|changed|saved|done)|faq updated|website updated|all set)\b/i.test(
+      t,
+    ) &&
+    t.length < 100 &&
+    !/[“"₦]/.test(t)
+  ) {
+    return true
+  }
+  return false
 }
 
 function clipText(s, n) {
@@ -318,10 +341,13 @@ function appendWriteOutcome(row, summary) {
   var lists = loadThreadLists(row)
   var ui = lists.ui || []
   var model = lists.model || []
+  var line = String(summary || "Saved.").trim() || "Saved."
   var i
+  var replaced = false
   for (i = ui.length - 1; i >= 0; i--) {
     if (ui[i] && (ui[i].kind === "confirm" || ui[i].kind === "pick")) {
       ui[i].kind = "reply"
+      ui[i].text = line
       try {
         delete ui[i].confirm
       } catch (_) {
@@ -332,11 +358,21 @@ function appendWriteOutcome(row, summary) {
       } catch (_) {
         ui[i].pick = null
       }
+      replaced = true
       break
     }
   }
-  var line = String(summary || "Saved.").trim() || "Saved."
-  ui.push({ role: "assistant", text: line, kind: "reply" })
+  // Also replace a trailing vague assistant reply ("Done", "Updated") with the real outcome.
+  if (!replaced) {
+    for (i = ui.length - 1; i >= 0; i--) {
+      if (ui[i] && ui[i].role === "assistant" && ui[i].kind === "reply" && isVagueSpeak(ui[i].text)) {
+        ui[i].text = line
+        replaced = true
+        break
+      }
+    }
+  }
+  if (!replaced) ui.push({ role: "assistant", text: line, kind: "reply" })
   model.push({ role: "user", content: "Confirmed." })
   model.push({ role: "assistant", content: line })
   row.set("messages", plainJsonList(ui))
@@ -2005,6 +2041,7 @@ __g.__ilAssistant = {
   rowFlight: rowFlight,
   stillMyFlight: stillMyFlight,
   preparedSpeak: preparedSpeak,
+  isVagueSpeak: isVagueSpeak,
   clipText: clipText,
   fieldLabel: fieldLabel,
   summarizePatch: summarizePatch,
@@ -2534,8 +2571,10 @@ routerAdd(
           clientAutos.push(autoWrites[aw])
         }
         ui.autoWrites = clientAutos.length ? clientAutos : null
-        if (autoSummaries.length && !spoken) spoken = autoSummaries.join(" ")
-        else if (autoSummaries.length) spoken = spoken + "\n" + autoSummaries.join(" ")
+        // Concrete outcomes come from the write path — do not leave a vague model "Done" in chat.
+        if (clientAutos.length && lib.isVagueSpeak && lib.isVagueSpeak(spoken)) spoken = ""
+        if (autoSummaries.length && !spoken) spoken = autoSummaries.join("\n")
+        else if (autoSummaries.length) spoken = spoken + "\n" + autoSummaries.join("\n")
       }
 
       if (!spoken && ui.shell && ui.shell.sidebar) {
@@ -3016,11 +3055,11 @@ routerAdd(
       }
       if (payload.studio_notes != null) {
         b.set("studio_notes", String(payload.studio_notes))
-        bits.push("notes updated")
+        bits.push("notes “" + clipText(payload.studio_notes, 100) + "”")
       }
       if (payload.preferred_at != null) {
         b.set("preferred_at", String(payload.preferred_at))
-        bits.push("schedule updated")
+        bits.push("schedule " + String(payload.preferred_at))
       }
       if (!bits.length) throw new BadRequestError("Nothing to change on that booking.")
       $app.save(b)
@@ -3030,11 +3069,19 @@ routerAdd(
       else if (before.fee_ngn !== after.fee_ngn || before.amount_paid_ngn !== after.amount_paid_ngn) type = "money_changed"
       else if (before.person !== after.person) type = "updated"
       lib.appendBookingEvent(b.id, type, before, after, actor)
+      var who = ""
+      try {
+        if (b.get("person")) {
+          var pWho = $app.findRecordById("people", b.get("person"))
+          who = pWho.getString("name")
+        }
+      } catch (_) {}
       return finishWrite({
         ok: true,
         collection: "bookings",
         id: b.id,
-        summary: "Updated booking: " + bits.join("; ") + ".",
+        summary:
+          (who ? "Updated " + who + "’s booking — " : "Updated booking — ") + bits.join("; ") + ".",
       })
     }
 
