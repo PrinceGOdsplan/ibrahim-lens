@@ -101,34 +101,7 @@ export function StudioLayout() {
   useEffect(() => {
     const root = document.documentElement
     root.classList.add('studio-lock-scroll')
-
-    function syncStudioFrame() {
-      // iOS standalone with status-bar-style "default" often reports a tall
-      // visualViewport (full screen) while innerHeight is the usable frame.
-      // Taking the minimum keeps the hub bar on-screen; -webkit-fill-available
-      // on html/body covers the residual gap when the shell was short.
-      const vv = window.visualViewport?.height
-      const candidates = [window.innerHeight, document.documentElement.clientHeight]
-      if (typeof vv === 'number' && vv > 0) candidates.push(vv)
-      const h = Math.round(Math.min(...candidates.filter((n) => Number.isFinite(n) && n > 0)))
-      if (h > 0) root.style.setProperty('--studio-frame-height', `${h}px`)
-    }
-
-    syncStudioFrame()
-    const vv = window.visualViewport
-    vv?.addEventListener('resize', syncStudioFrame)
-    vv?.addEventListener('scroll', syncStudioFrame)
-    window.addEventListener('resize', syncStudioFrame)
-    window.addEventListener('orientationchange', syncStudioFrame)
-
-    return () => {
-      root.classList.remove('studio-lock-scroll')
-      root.style.removeProperty('--studio-frame-height')
-      vv?.removeEventListener('resize', syncStudioFrame)
-      vv?.removeEventListener('scroll', syncStudioFrame)
-      window.removeEventListener('resize', syncStudioFrame)
-      window.removeEventListener('orientationchange', syncStudioFrame)
-    }
+    return () => root.classList.remove('studio-lock-scroll')
   }, [])
 
   useEffect(() => {
@@ -373,7 +346,7 @@ export function StudioLayout() {
   return (
     <SurfaceProvider surface="studio">
       <div
-        className="studio-shell flex h-full min-h-0 flex-col overflow-hidden overscroll-none bg-studio-bg text-studio-fg [touch-action:manipulation]"
+        className="studio-shell flex h-dvh min-h-0 flex-col overflow-hidden overscroll-none bg-studio-bg text-studio-fg [touch-action:manipulation]"
         data-studio-appearance={appearance}
       >
         {/* Phone operator strip: only on small viewports, does not name the hub. */}
@@ -482,7 +455,7 @@ export function StudioLayout() {
         {/* Phone bottom hub bar. */}
         <nav
           aria-label="Studio hubs"
-          className="flex shrink-0 border-t border-studio-border bg-studio-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
+          className="flex shrink-0 border-t border-studio-border bg-studio-panel pb-[env(safe-area-inset-bottom)] md:hidden"
         >
           {hubs.map((hub) => (
             <NavLink
