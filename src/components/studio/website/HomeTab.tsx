@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { StudioFullscreenModal } from '@/components/studio/StudioFullscreenModal'
 import { StudioImageGallery } from '@/components/studio/StudioImageGallery'
-import { SectionSaveBar, StudioActionMenu, quietTextareaClass, studioRowActive, studioRowBadge, useSectionSave } from '@/components/studio/StudioSection'
+import { SectionSaveBar, StudioActionMenu, StudioMenu, quietTextareaClass, studioRowActive, studioRowBadge, useSectionSave } from '@/components/studio/StudioSection'
 import { OpenPublicPageLink } from '@/components/studio/website/shared'
 import {
   mediaThumbUrl,
@@ -32,52 +32,20 @@ import { pbErrorMessage } from '@/lib/pb-error'
 const uploadFailure = (err: unknown) => pbErrorMessage(err, 'Could not upload that photo.')
 
 function AddThumbMenu({ onPick, onUpload }: { onPick: () => void; onUpload: () => void }) {
-  const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
   return (
-    <div className="relative" ref={root}>
-      <button
-        type="button"
-        aria-label="Add photo"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-14 w-14 items-center justify-center rounded border border-dashed border-studio-border/80 text-lg text-studio-muted hover:border-studio-fg hover:text-studio-fg"
-      >
-        +
-      </button>
-      {open ? (
-        <div className="absolute left-0 z-20 mt-1 min-w-[7.5rem] border border-studio-border/80 bg-studio-bg py-1 shadow-md">
-          {(
-            [
-              ['Pick', onPick],
-              ['Upload', onUpload],
-            ] as const
-          ).map(([label, fn]) => (
-            <button
-              key={label}
-              type="button"
-              className="block w-full px-3 py-1.5 text-left text-xs text-studio-fg hover:bg-studio-panel"
-              onClick={() => {
-                setOpen(false)
-                fn()
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+    <StudioMenu
+      label="Add photo"
+      align="left"
+      items={[
+        { label: 'Pick', onClick: onPick },
+        { label: 'Upload', onClick: onUpload },
+      ]}
+      trigger={
+        <span className="flex h-14 w-14 items-center justify-center rounded border border-dashed border-studio-border/80 text-lg text-studio-muted hover:border-studio-fg hover:text-studio-fg">
+          +
+        </span>
+      }
+    />
   )
 }
 
@@ -126,8 +94,7 @@ export function HomeTab({ globals, portfolio, allMedia, websiteWork, busy, onSav
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-studio-muted">What visitors see on Home. Tap a row to edit.</p>
+      <div className="flex justify-end">
         <OpenPublicPageLink href="/" label="Open Home" />
       </div>
 
@@ -360,16 +327,17 @@ function FeaturedEditor({
                 const next = ids.slice(0, MAX_HOME_FEATURED)
                 await onSave({ home_featured: next })
                 await Promise.all(next.map((id) => updateMediaCaption(id, captions[id] ?? '')))
-                await onRefresh()
+                try {
+                  await onRefresh()
+                } catch {
+                  /* writes already landed */
+                }
                 onClose()
               })
             }
           />
         }
       >
-        <p className="mb-3 text-xs text-studio-muted">
-          Up to {MAX_HOME_FEATURED}. Tap a row to edit — Pick / Upload / Remove in ⋯
-        </p>
         {uploadError ? (
           <Alert variant="error" className="mb-3 text-xs">
             {uploadError}
@@ -463,9 +431,7 @@ function FeaturedEditor({
               autoFocus
             />
           </div>
-        ) : (
-          <p className="mt-4 text-xs text-studio-muted">Select a photo to edit its caption.</p>
-        )}
+        ) : null}
       </StudioFullscreenModal>
       <StudioImageGallery
         open={pickMode === 'add'}
@@ -630,7 +596,7 @@ function ServicesEditor({
           />
         </div>
         {draft.length >= MAX_HOME_LANES ? (
-          <p className="mb-3 text-xs text-studio-muted">Maximum {MAX_HOME_LANES} cards — the grid is shaped for that many.</p>
+          <p className="mb-3 text-xs text-studio-muted">Maximum {MAX_HOME_LANES}.</p>
         ) : null}
         {uploadError ? (
           <Alert variant="error" className="mb-3 text-xs">
@@ -682,7 +648,7 @@ function ServicesEditor({
             />
           </div>
         ) : (
-          <p className="mt-3 text-xs text-studio-muted">Maximum {MAX_HOME_LANES} services.</p>
+          <p className="mt-3 text-xs text-studio-muted">Maximum {MAX_HOME_LANES}.</p>
         )}
 
         {lane && active != null ? (
@@ -741,9 +707,7 @@ function ServicesEditor({
               />
             </div>
           </div>
-        ) : (
-          <p className="mt-4 text-xs text-studio-muted">Select a service to edit, or Add service to start with a photo.</p>
-        )}
+        ) : null}
       </StudioFullscreenModal>
 
       <StudioImageGallery
@@ -785,51 +749,16 @@ function ServicesEditor({
 }
 
 function AddServiceMenu({ onPick, onUpload }: { onPick: () => void; onUpload: () => void }) {
-  const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
   return (
-    <div className="relative inline-block" ref={root}>
-      <button
-        type="button"
-        className="text-xs text-studio-accent hover:opacity-80"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        Add service
-      </button>
-      {open ? (
-        <div className="absolute left-0 z-20 mt-1 min-w-[8rem] border border-studio-border/80 bg-studio-bg py-1 shadow-md">
-          {(
-            [
-              ['Pick photo', onPick],
-              ['Upload photo', onUpload],
-            ] as const
-          ).map(([label, fn]) => (
-            <button
-              key={label}
-              type="button"
-              className="block w-full px-3 py-1.5 text-left text-xs text-studio-fg hover:bg-studio-panel"
-              onClick={() => {
-                setOpen(false)
-                fn()
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+    <StudioMenu
+      label="Add service"
+      align="left"
+      items={[
+        { label: 'Pick photo', onClick: onPick },
+        { label: 'Upload photo', onClick: onUpload },
+      ]}
+      trigger={<span className="text-xs text-studio-accent hover:opacity-80">Add service</span>}
+    />
   )
 }
 
@@ -963,7 +892,7 @@ function WorksEditor({
 
       {showAll ? (
         !websiteWork.length ? (
-          <p className="text-xs text-studio-muted">No public Work yet. Gallery → Work → Show on website.</p>
+          <p className="text-xs text-studio-muted">No public Work yet.</p>
         ) : (
           <ul className="divide-y divide-studio-border/50">
             {websiteWork.map((work) => {
@@ -1050,7 +979,6 @@ function StripEditor({
         />
       }
     >
-      <p className="mb-3 text-xs text-studio-muted">Photo grid on Home under Work.</p>
       <div className="mb-3 flex gap-4 text-xs">
         <button
           type="button"
@@ -1081,9 +1009,7 @@ function StripEditor({
             })}
           </div>
         </>
-      ) : (
-        <p className="text-xs text-studio-muted">Auto fills from Portfolio (skips About photo).</p>
-      )}
+      ) : null}
     </StudioFullscreenModal>
   )
 }
@@ -1136,7 +1062,6 @@ function TeaseEditor({
         />
       }
     >
-      <p className="mb-3 text-xs text-studio-muted">Short Home blurb linking to About.</p>
       <div className="space-y-3">
         <div>
           <Label className="text-xs text-studio-muted">Headline</Label>
@@ -1145,7 +1070,6 @@ function TeaseEditor({
         <div>
           <Label className="text-xs text-studio-muted">Short text under it</Label>
           <Input value={lead} onChange={(e) => setLead(e.target.value)} placeholder="e.g. Portraits and weddings in Lagos" />
-          <p className="mt-1 text-xs text-studio-muted">If empty, the About page text is used.</p>
         </div>
       </div>
     </StudioFullscreenModal>

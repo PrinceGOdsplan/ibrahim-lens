@@ -59,6 +59,15 @@ export function useStudioAppearance() {
     return () => clearStudioAppearanceFromDocument()
   }, [appearance])
 
+  useEffect(() => {
+    const onExternal = (event: Event) => {
+      const next = (event as CustomEvent<StudioAppearance>).detail
+      if (isStudioAppearance(next)) setAppearanceState(next)
+    }
+    window.addEventListener('studio-appearance', onExternal as EventListener)
+    return () => window.removeEventListener('studio-appearance', onExternal as EventListener)
+  }, [])
+
   const setAppearance = useCallback((next: StudioAppearance) => {
     writeStudioAppearance(next)
     setAppearanceState(next)

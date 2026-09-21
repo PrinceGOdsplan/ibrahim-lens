@@ -49,7 +49,7 @@ While viewing a live Delivery gallery (including the immersive viewer), each pho
 - **THEN** those photographs are not shown with the Delivery view mark
 
 ### Requirement: Download is distinct from view for notices
-A client download of an original SHALL be the event that may trigger client downloaded mail and that suppresses client expiry mail, as specified in `studio-notifications`. Opening the gallery or viewing a frame SHALL NOT trigger those mails.
+A client download of an original SHALL be the event that marks the Delivery downloaded and that suppresses client expiry mail, as specified in `studio-notifications`. Opening the gallery or viewing a frame SHALL NOT count as a download. The system SHALL NOT send a client “you downloaded” email.
 
 That download event SHALL be authored by the server when it serves the original file. The gallery page SHALL NOT need to POST a download event for the Delivery to be marked downloaded.
 
@@ -59,4 +59,4 @@ That download event SHALL be authored by the server when it serves the original 
 
 #### Scenario: Original file served
 - **WHEN** a client downloads an original from a valid Delivery
-- **THEN** the Delivery is marked downloaded even if the gallery page does not POST an inquiry
+- **THEN** the Delivery is marked downloaded even if the gallery page does not POST an inquiry, and no client download email is sent

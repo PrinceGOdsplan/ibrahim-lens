@@ -116,6 +116,7 @@ export default defineConfig(({ command, mode }) => {
     server: {
       host: '127.0.0.1',
       port: 5173,
+      allowedHosts: true,
       watch: {
         // Seed stills / PB data must not be watched — Windows EBUSY crashes Vite
         ignored: ['**/scripts/seed-assets/**', '**/pb_data/**'],

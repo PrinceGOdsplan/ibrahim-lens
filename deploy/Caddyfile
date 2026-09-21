@@ -17,12 +17,12 @@
 		file_server
 	}
 
-	# Public photo files (originals + thumbs). Delivery gallery copies are deleted
-	# on revoke/expiry so those URLs 404 at origin; Cloudflare may still hold a HIT
-	# until its cache TTL.
+	# Public photo files (originals + thumbs). Keep TTL short so Portfolio removals
+	# stop serving from Cloudflare within about an hour. Delivery gallery copies are
+	# deleted on revoke/expiry (those URLs 404 at origin once CF expires).
 	@pbfiles path /api/files/*
 	handle @pbfiles {
-		header Cache-Control "public, max-age=2592000"
+		header Cache-Control "public, max-age=3600"
 		reverse_proxy pocketbase:8090
 	}
 
@@ -38,11 +38,26 @@
 		reverse_proxy pocketbase:8090
 	}
 
+	# Assistant turns can wait on OpenRouter (~60s). Must sit before /api/*.
+	@assistant path /api/ibrahim/assistant*
+	handle @assistant {
+		header Cache-Control "private, no-store"
+		reverse_proxy pocketbase:8090 {
+			transport http {
+				response_header_timeout 70s
+				read_timeout 70s
+				write_timeout 70s
+			}
+		}
+	}
+
 	# PocketBase REST — never cache.
 	@pocketbase path /api/*
 	handle @pocketbase {
 		header Cache-Control "private, no-store"
-		reverse_proxy pocketbase:8090
+		reverse_proxy pocketbase:8090 {
+			flush_interval -1
+		}
 	}
 
 	# Studio service worker — never cache; scope is /studio/ by path.

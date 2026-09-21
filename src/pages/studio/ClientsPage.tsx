@@ -59,7 +59,7 @@ import { StudioIcon, StudioTextIconButton } from '@/components/studio/StudioIcon
 import { StudioTabs } from '@/components/studio/StudioTabs'
 import { RevealOnOpen } from '@/components/studio/RevealOnOpen'
 import { StudioHubHeader } from '@/components/studio/StudioHubHeader'
-import { StudioHubShell, StudioScrollPane } from '@/components/studio/StudioHubShell'
+import { StudioHubShell, StudioScrollPane, StudioWorkSurface } from '@/components/studio/StudioHubShell'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Alert, PartialDataNotice } from '@/components/ui/alert'
@@ -67,6 +67,7 @@ import { useConfirm } from '@/components/ui/confirm'
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { settleAll } from '@/lib/useAsyncData'
+import { useStudioRecordRefresh } from '@/lib/studio-record-sync'
 
 type Tab = 'deliveries' | 'feedback' | 'people' | 'inbox'
 
@@ -335,6 +336,7 @@ export function StudioClientsPage() {
   const tab = (rawTab && VALID_TABS.has(rawTab) ? rawTab : 'inbox') as Tab
   const personParam = params.get('person')
   const bookingParam = params.get('booking')
+  const deliveryParam = params.get('delivery')
 
   const [people, setPeople] = useState<PersonRecord[]>([])
   const [bookings, setBookings] = useState<BookingRecord[]>([])
@@ -404,6 +406,27 @@ export function StudioClientsPage() {
     return load()
   }, [load])
 
+  const onAssistantWrite = useCallback(
+    (change: { collection: string; id: string }) => {
+      void refresh().then(() => {
+        if (change.collection === 'deliveries' && change.id === deliveryParam) {
+          setMessage('This delivery changed.')
+        }
+        if (change.collection === 'people' && change.id === personParam) {
+          setMessage('This person changed.')
+        }
+        if (change.collection === 'bookings' && change.id === bookingParam) {
+          setMessage('This booking changed.')
+        }
+        if (change.collection === 'form_inquiries') {
+          setMessage('Inbox changed.')
+        }
+      })
+    },
+    [refresh, deliveryParam, personParam, bookingParam],
+  )
+  useStudioRecordRefresh(['deliveries', 'people', 'bookings', 'form_inquiries'], onAssistantWrite)
+
   useEffect(() => {
     if (tab !== 'feedback') return
     listFeedback()
@@ -457,15 +480,20 @@ export function StudioClientsPage() {
     setMessage(null)
     try {
       await action()
-      await refresh()
-      if (ok) setMessage(ok)
-      return true
     } catch (e) {
       setError(pbErrorMessage(e))
+      setBusyScope(null)
       return false
+    }
+    try {
+      await refresh()
+      if (ok) setMessage(ok)
+    } catch {
+      if (ok) setMessage(ok)
     } finally {
       setBusyScope(null)
     }
+    return true
   }
 
   // A success line that outlives the action it described reads as the result of
@@ -537,231 +565,235 @@ export function StudioClientsPage() {
 
       {!loaded ? <ClientsSkeleton /> : null}
 
-      {loaded && tab === 'deliveries' ? (
-        <DeliveriesTab
-          deliveries={deliveries}
-          people={people}
-          bookings={hubBookings(bookings)}
-          albums={albums}
-          work={work}
-          busy={busyScope !== null}
-          showCreate={showCreate}
-          onCloseCreate={() => setShowCreate(false)}
-          error={error}
-          selectedId={params.get('delivery')}
-          onSelect={(id) => {
-            setShowCreate(false)
-            setTab('deliveries', { delivery: id ?? '' })
-          }}
-          onCreate={async (input) => {
-            let createdId = ''
-            const ok = await run(async () => {
-              const rec = await createDelivery(input)
-              createdId = rec.id
-            }, 'Delivery created.')
-            if (ok && createdId) {
-              setShowCreate(false)
-              setTab('deliveries', { delivery: createdId })
-            }
-            return ok
-          }}
-          onUpdate={(id, data) => run(() => updateDelivery(id, data).then(() => undefined), 'Delivery saved.')}
-          onResend={(id, patch) =>
-            run(async () => {
-              if (patch) await updateDelivery(id, patch)
-              await resendGalleryEmail(id)
-            }, 'Gallery email sent.')
-          }
-          onRestore={async (id) => {
-            const delivery = deliveries.find((d) => d.id === id)
-            const who = delivery?.expand?.person?.name || delivery?.client_name
-            const ok = await confirm({
-              title: 'Restore this delivery link?',
-              body: `The same link works again for 7 days${who ? ` for ${who}` : ''}.`,
-              confirmLabel: 'Restore link',
-            })
-            if (!ok) return
-            await run(() => restoreDelivery(id).then(() => undefined), 'Delivery restored.')
-          }}
-          onRevoke={async (id) => {
-            const delivery = deliveries.find((d) => d.id === id)
-            const ok = await confirm({
-              title: 'Revoke this delivery link?',
-              body: `The link stops working immediately${
-                delivery?.expand?.person?.name ? ` for ${delivery.expand.person.name}` : ''
-              }. Anyone who saved it loses access. You can restore it later or delete it.`,
-              confirmLabel: 'Revoke link',
-              destructive: true,
-            })
-            if (!ok) return
-            await run(() => revokeDelivery(id).then(() => undefined), 'Delivery revoked.')
-          }}
-          onDelete={async (id) => {
-            const delivery = deliveries.find((d) => d.id === id)
-            const who = delivery?.expand?.person?.name || delivery?.client_name
-            const ok = await confirm({
-              title: 'Delete this delivery link?',
-              body: `This removes the gallery${who ? ` for ${who}` : ''} and any feedback on it. Anyone with the link loses access.`,
-              confirmLabel: 'Delete link',
-              destructive: true,
-            })
-            if (!ok) return
-            const gone = await run(() => deleteDelivery(id), 'Delivery deleted.')
-            if (gone && params.get('delivery') === id) setTab('deliveries', { delivery: '' })
-          }}
-        />
-      ) : null}
-
-      {loaded && tab === 'feedback' ? (
-        <FeedbackTab
-          feedback={feedback}
-          busy={busyScope !== null}
-          selectedId={params.get('feedback')}
-          onSelect={(id) => setTab('feedback', { feedback: id ?? '' })}
-          onSave={(id, data) => run(() => updateFeedback(id, data).then(() => undefined))}
-          onPromote={(item, quote, author) =>
-            run(() => promoteFeedbackToTestimonial(item, quote, author).then(() => undefined), 'Published as testimonial.')
-          }
-        />
-      ) : null}
-
-      {loaded && tab === 'people' ? (
-        <>
-        <PeopleTab
-          people={people}
-          busy={busyScope !== null}
-          focusPersonId={peopleFocusId}
-          historyTick={peopleHistoryTick}
-          showAdd={showAddPerson}
-          onShowAdd={setShowAddPerson}
-          onSave={(data) =>
-            run(async () => {
-              await upsertPerson(data)
-              setShowAddPerson(false)
-            }, 'Person saved.')
-          }
-          onUpdate={(id, data) => run(() => updatePerson(id, data).then(() => undefined))}
-          onNewBooking={(personId) => {
-            setBookingPersonId(personId)
-            setShowNewBooking(true)
-          }}
-          onSendPhotos={(personId) => {
-            setShowCreate(true)
-            const next = new URLSearchParams(params)
-            next.set('tab', 'people')
-            next.set('person', personId)
-            setParams(next)
-          }}
-        />
-        {showCreate ? (
-          <DeliveriesTab
-            createOnly
-            deliveries={deliveries}
-            people={people}
-            bookings={hubBookings(bookings)}
-            albums={albums}
-            work={work}
-            busy={busyScope !== null}
-            showCreate={showCreate}
-            onCloseCreate={() => setShowCreate(false)}
-            error={error}
-            selectedId={null}
-            onSelect={() => undefined}
-            onCreate={async (input) => {
-              let createdId = ''
-              const ok = await run(async () => {
-                const rec = await createDelivery(input)
-                createdId = rec.id
-              }, 'Photos sent.')
-              if (ok && createdId) setShowCreate(false)
-              return ok
-            }}
-            onUpdate={() => undefined}
-            onResend={() => undefined}
-            onRestore={() => undefined}
-            onRevoke={() => undefined}
-            onDelete={() => undefined}
-          />
-        ) : null}
-        {showNewBooking && bookingPersonId ? (
-          <PersonBookingSheet
-            person={people.find((p) => p.id === bookingPersonId) ?? null}
-            busy={busyScope !== null}
-            onClose={() => {
-              setShowNewBooking(false)
-              setBookingPersonId(null)
-            }}
-            onCreate={async (input) => {
-              const ok = await run(
-                () => createBooking({ ...input, personId: bookingPersonId, status: 'pending', source: 'manual' }).then(() => undefined),
-                'Booking added.',
-              )
-              if (ok) {
-                setShowNewBooking(false)
-                setBookingPersonId(null)
-                setPeopleFocusId(bookingPersonId)
-                setPeopleHistoryTick((n) => n + 1)
+      {loaded ? (
+        <StudioWorkSurface>
+          {tab === 'deliveries' ? (
+            <DeliveriesTab
+              deliveries={deliveries}
+              people={people}
+              bookings={hubBookings(bookings)}
+              albums={albums}
+              work={work}
+              busy={busyScope !== null}
+              showCreate={showCreate}
+              onCloseCreate={() => setShowCreate(false)}
+              error={error}
+              selectedId={params.get('delivery')}
+              onSelect={(id) => {
+                setShowCreate(false)
+                setTab('deliveries', { delivery: id ?? '' })
+              }}
+              onCreate={async (input) => {
+                let createdId = ''
+                const ok = await run(async () => {
+                  const rec = await createDelivery(input)
+                  createdId = rec.id
+                }, 'Delivery created.')
+                if (ok && createdId) {
+                  setShowCreate(false)
+                  setTab('deliveries', { delivery: createdId })
+                }
+                return ok
+              }}
+              onUpdate={(id, data) => run(() => updateDelivery(id, data).then(() => undefined), 'Delivery saved.')}
+              onResend={(id, patch) =>
+                run(async () => {
+                  if (patch) await updateDelivery(id, patch)
+                  await resendGalleryEmail(id)
+                }, 'Gallery email sent.')
               }
-              return ok
-            }}
-          />
-        ) : null}
-        </>
-      ) : null}
+              onRestore={async (id) => {
+                const delivery = deliveries.find((d) => d.id === id)
+                const who = delivery?.expand?.person?.name || delivery?.client_name
+                const ok = await confirm({
+                  title: 'Restore this delivery link?',
+                  body: `The same link works again for 7 days${who ? ` for ${who}` : ''}.`,
+                  confirmLabel: 'Restore link',
+                })
+                if (!ok) return
+                await run(() => restoreDelivery(id).then(() => undefined), 'Delivery restored.')
+              }}
+              onRevoke={async (id) => {
+                const delivery = deliveries.find((d) => d.id === id)
+                const ok = await confirm({
+                  title: 'Revoke this delivery link?',
+                  body: `The link stops working immediately${
+                    delivery?.expand?.person?.name ? ` for ${delivery.expand.person.name}` : ''
+                  }. Anyone who saved it loses access. You can restore it later or delete it.`,
+                  confirmLabel: 'Revoke link',
+                  destructive: true,
+                })
+                if (!ok) return
+                await run(() => revokeDelivery(id).then(() => undefined), 'Delivery revoked.')
+              }}
+              onDelete={async (id) => {
+                const delivery = deliveries.find((d) => d.id === id)
+                const who = delivery?.expand?.person?.name || delivery?.client_name
+                const ok = await confirm({
+                  title: 'Delete this delivery link?',
+                  body: `This removes the gallery${who ? ` for ${who}` : ''} and any feedback on it. Anyone with the link loses access.`,
+                  confirmLabel: 'Delete link',
+                  destructive: true,
+                })
+                if (!ok) return
+                const gone = await run(() => deleteDelivery(id), 'Delivery deleted.')
+                if (gone && params.get('delivery') === id) setTab('deliveries', { delivery: '' })
+              }}
+            />
+          ) : null}
 
-      {loaded && tab === 'inbox' ? (
-        <InboxTab
-          inquiries={inquiries}
-          requests={unacceptedBookings(bookings)}
-          busyScope={busyScope}
-          onOpenTab={setTab}
-          onAccept={async (booking) => {
-            const ok = await run(
-              () => updateBooking(booking.id, { status: 'pending' }).then(() => undefined),
-              'Accepted into Bookings.',
-              booking.id,
-            )
-            if (ok) navigate(`/studio/bookings?booking=${booking.id}`)
-          }}
-          onDelete={async (booking) => {
-            const name = booking.expand?.person?.name?.trim() || 'this client'
-            const ok = await confirm({
-              title: `Delete ${name}'s request?`,
-              body: 'This request will never become a booking. This cannot be recovered.',
-              confirmLabel: 'Delete request',
-              destructive: true,
-            })
-            if (!ok) return
-            const personId = booking.person
-            const removed = await run(() => removeBooking(booking.id), 'Request deleted.', booking.id)
-            if (!removed) return
-            const refs = await personReferences(personId)
-            if (refs.bookings === 0 && refs.deliveries === 0) {
-              const also = await confirm({
-                title: `Remove ${name} from the directory?`,
-                body: 'They have no other bookings or deliveries. Keep them if you still want the name or phone.',
-                confirmLabel: 'Remove person',
-                cancelLabel: 'Keep person',
-                destructive: true,
-              })
-              if (also) {
-                await run(() => removePerson(personId), `${name} removed from the directory.`)
+          {tab === 'feedback' ? (
+            <FeedbackTab
+              feedback={feedback}
+              busy={busyScope !== null}
+              selectedId={params.get('feedback')}
+              onSelect={(id) => setTab('feedback', { feedback: id ?? '' })}
+              onSave={(id, data) => run(() => updateFeedback(id, data).then(() => undefined))}
+              onPromote={(item, quote, author) =>
+                run(() => promoteFeedbackToTestimonial(item, quote, author).then(() => undefined), 'Published as testimonial.')
               }
-            }
-          }}
-          onMarkRead={async (id) => {
-            try {
-              const updated = await markInquiryRead(id)
-              setInquiries((prev) => prev.map((item) => (item.id === id ? updated : item)))
-            } catch (e) {
-              // Silently failing here leaves the unread badge lying about state.
-              setError(pbErrorMessage(e, 'Could not mark that message as read.'))
-            }
-          }}
-        />
+            />
+          ) : null}
+
+          {tab === 'people' ? (
+            <>
+            <PeopleTab
+              people={people}
+              busy={busyScope !== null}
+              focusPersonId={peopleFocusId}
+              historyTick={peopleHistoryTick}
+              showAdd={showAddPerson}
+              onShowAdd={setShowAddPerson}
+              onSave={(data) =>
+                run(async () => {
+                  await upsertPerson(data)
+                  setShowAddPerson(false)
+                }, 'Person saved.')
+              }
+              onUpdate={(id, data) => run(() => updatePerson(id, data).then(() => undefined))}
+              onNewBooking={(personId) => {
+                setBookingPersonId(personId)
+                setShowNewBooking(true)
+              }}
+              onSendPhotos={(personId) => {
+                setShowCreate(true)
+                const next = new URLSearchParams(params)
+                next.set('tab', 'people')
+                next.set('person', personId)
+                setParams(next)
+              }}
+            />
+            {showCreate ? (
+              <DeliveriesTab
+                createOnly
+                deliveries={deliveries}
+                people={people}
+                bookings={hubBookings(bookings)}
+                albums={albums}
+                work={work}
+                busy={busyScope !== null}
+                showCreate={showCreate}
+                onCloseCreate={() => setShowCreate(false)}
+                error={error}
+                selectedId={null}
+                onSelect={() => undefined}
+                onCreate={async (input) => {
+                  let createdId = ''
+                  const ok = await run(async () => {
+                    const rec = await createDelivery(input)
+                    createdId = rec.id
+                  }, 'Photos sent.')
+                  if (ok && createdId) setShowCreate(false)
+                  return ok
+                }}
+                onUpdate={() => undefined}
+                onResend={() => undefined}
+                onRestore={() => undefined}
+                onRevoke={() => undefined}
+                onDelete={() => undefined}
+              />
+            ) : null}
+            {showNewBooking && bookingPersonId ? (
+              <PersonBookingSheet
+                person={people.find((p) => p.id === bookingPersonId) ?? null}
+                busy={busyScope !== null}
+                onClose={() => {
+                  setShowNewBooking(false)
+                  setBookingPersonId(null)
+                }}
+                onCreate={async (input) => {
+                  const ok = await run(
+                    () => createBooking({ ...input, personId: bookingPersonId, status: 'pending', source: 'manual' }).then(() => undefined),
+                    'Booking added.',
+                  )
+                  if (ok) {
+                    setShowNewBooking(false)
+                    setBookingPersonId(null)
+                    setPeopleFocusId(bookingPersonId)
+                    setPeopleHistoryTick((n) => n + 1)
+                  }
+                  return ok
+                }}
+              />
+            ) : null}
+            </>
+          ) : null}
+
+          {tab === 'inbox' ? (
+            <InboxTab
+              inquiries={inquiries}
+              requests={unacceptedBookings(bookings)}
+              busyScope={busyScope}
+              onOpenTab={setTab}
+              onAccept={async (booking) => {
+                const ok = await run(
+                  () => updateBooking(booking.id, { status: 'pending' }).then(() => undefined),
+                  'Accepted into Bookings.',
+                  booking.id,
+                )
+                if (ok) navigate(`/studio/bookings?booking=${booking.id}`)
+              }}
+              onDelete={async (booking) => {
+                const name = booking.expand?.person?.name?.trim() || 'this client'
+                const ok = await confirm({
+                  title: `Delete ${name}'s request?`,
+                  body: 'This request will never become a booking. This cannot be recovered.',
+                  destructive: true,
+                })
+                if (!ok) return
+                const personId = booking.person
+                const removed = await run(() => removeBooking(booking.id), 'Request deleted.', booking.id)
+                if (!removed) return
+                const refs = await personReferences(personId)
+                if (refs.bookings === 0 && refs.deliveries === 0) {
+                  const also = await confirm({
+                    title: `Remove ${name} from the directory?`,
+                    body: 'They have no other bookings or deliveries. Keep them if you still want the name or phone.',
+                    confirmLabel: 'Remove person',
+                    cancelLabel: 'Keep person',
+                    destructive: true,
+                  })
+                  if (also) {
+                    await run(() => removePerson(personId), `${name} removed from the directory.`)
+                  }
+                }
+              }}
+              onMarkRead={async (id) => {
+                try {
+                  const updated = await markInquiryRead(id)
+                  setInquiries((prev) => prev.map((item) => (item.id === id ? updated : item)))
+                } catch (e) {
+                  // Silently failing here leaves the unread badge lying about state.
+                  setError(pbErrorMessage(e, 'Could not mark that message as read.'))
+                }
+              }}
+            />
+          ) : null}
+
+          {confirmDialog}
+        </StudioWorkSurface>
       ) : null}
 
-      {confirmDialog}
       </StudioScrollPane>
     </StudioHubShell>
   )
@@ -967,7 +999,7 @@ function PeopleTab({
         />
       ) : null}
       {!people.length ? (
-        <p className="text-sm text-studio-muted">No one in the list yet. Use Add to save a person.</p>
+        <p className="text-sm text-studio-muted">No one in the list yet.</p>
       ) : null}
       {people.length && !filtered.length ? (
         <p className="text-sm text-studio-muted">No matches for &ldquo;{search.trim()}&rdquo;.</p>
@@ -1263,11 +1295,6 @@ function DeliveriesTab({
                 onChange={(e) => setClientEmail(e.target.value)}
                 placeholder="e.g. ada@email.com"
               />
-              <p className="text-xs text-studio-muted">
-                {personId
-                  ? 'Filled from this person if they have an email saved.'
-                  : 'Needed if you want to email the client the gallery link.'}
-              </p>
             </div>
           </div>
 
@@ -1326,7 +1353,7 @@ function DeliveriesTab({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-studio-muted">No albums yet. Make one in Gallery.</p>
+              <p className="text-sm text-studio-muted">No albums yet.</p>
             )
           ) : null}
 
@@ -1344,7 +1371,7 @@ function DeliveriesTab({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-studio-muted">No Work yet. Make one in Gallery.</p>
+              <p className="text-sm text-studio-muted">No Work yet.</p>
             )
           ) : null}
         </div>
@@ -1728,9 +1755,6 @@ function InboxTab({
         aria-label="Inbox folders"
         primary={INBOX_FOLDERS}
       />
-      <p className="text-xs text-studio-muted">
-        Requests from the site, and messages people write you. Accept a request to move it into Bookings.
-      </p>
       {!rows.length ? <p className="text-sm text-studio-muted">Inbox empty.</p> : null}
       {rows.map((row) => {
         const open = selectedKey === row.key

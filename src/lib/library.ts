@@ -307,17 +307,17 @@ export async function listGalleryMedia() {
 }
 
 export async function listPortfolioMedia() {
+  const load = (expand?: string) =>
+    pb.collection('media').getFullList<MediaRecord>({
+      filter: 'vault = "portfolio"',
+      sort: 'portfolio_sort,created',
+      ...(expand ? { expand } : {}),
+    })
   try {
-    return await pb.collection('media').getFullList<MediaRecord>({
-      filter: 'vault = "portfolio"',
-      sort: 'portfolio_sort,created',
-      expand: 'tags',
-    })
+    return await load('tags')
   } catch {
-    return pb.collection('media').getFullList<MediaRecord>({
-      filter: 'vault = "portfolio"',
-      sort: 'portfolio_sort,created',
-    })
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    return load()
   }
 }
 
@@ -460,6 +460,11 @@ export async function deleteGalleryMedia(id: string, mode?: 'gallery-only' | 'bo
   if (mode === 'both' && copies.length) {
     await Promise.all(copies.map((c) => pb.collection('media').delete(c.id)))
   }
+  if (mode === 'gallery-only' && copies.length) {
+    // Drop the link while the Gallery photo still exists. PocketBase re-checks
+    // every relation on the next Portfolio save, so a dangling copied_from fails it.
+    await Promise.all(copies.map((copy) => pb.collection('media').update(copy.id, { copied_from: '' })))
+  }
   return pb.collection('media').delete(id)
 }
 
@@ -483,13 +488,46 @@ export async function setPortfolioMembership(id: string, inPortfolio: boolean, p
   }
   const data: Record<string, unknown> = { in_portfolio: false }
   if (typeof portfolioSort === 'number') data.portfolio_sort = portfolioSort
-  return pb.collection('media').update<MediaRecord>(id, data)
+  return updateMedia(id, data)
+}
+
+/** PocketBase validates every relation on update, including ones the patch does not change. */
+function missingRelationFields(error: unknown) {
+  const err = error as {
+    response?: { data?: Record<string, { code?: string }> }
+    data?: Record<string, { code?: string }>
+  }
+  const data = err.response?.data ?? err.data
+  if (!data || typeof data !== 'object') return [] as string[]
+  return Object.entries(data)
+    .filter(([, info]) => info?.code === 'validation_missing_rel_records')
+    .map(([field]) => field)
+}
+
+async function updateMedia(id: string, data: Record<string, unknown>) {
+  try {
+    return await pb.collection('media').update<MediaRecord>(id, data)
+  } catch (error) {
+    const broken = missingRelationFields(error)
+    if (!broken.length) throw error
+    const patch = { ...data }
+    if (broken.includes('copied_from')) patch.copied_from = ''
+    if (broken.includes('tags')) {
+      const [record, tags] = await Promise.all([
+        pb.collection('media').getOne<MediaRecord>(id),
+        listTags(),
+      ])
+      const live = new Set(tags.map((tag) => tag.id))
+      patch.tags = (record.tags ?? []).filter((tagId) => live.has(tagId))
+    }
+    return pb.collection('media').update<MediaRecord>(id, patch)
+  }
 }
 
 export async function reorderPortfolio(orderedIds: string[]) {
   await Promise.all(
     orderedIds.map((id, index) =>
-      pb.collection('media').update(id, {
+      updateMedia(id, {
         vault: 'portfolio',
         in_portfolio: true,
         portfolio_sort: index + 1,
@@ -499,11 +537,11 @@ export async function reorderPortfolio(orderedIds: string[]) {
 }
 
 export async function setMediaTags(id: string, tagIds: string[]) {
-  return pb.collection('media').update<MediaRecord>(id, { tags: tagIds })
+  return updateMedia(id, { tags: tagIds })
 }
 
 export async function updateMediaCaption(id: string, caption: string) {
-  return pb.collection('media').update<MediaRecord>(id, { caption: caption.trim() })
+  return updateMedia(id, { caption: caption.trim() })
 }
 
 /** Flags `id` as the Artist portrait, clearing any other flagged image first. Pass `null` to clear. */
@@ -512,10 +550,10 @@ export async function setArtistPortrait(id: string | null) {
     filter: 'is_artist_portrait = true',
   })
   await Promise.all(
-    flagged.filter((item) => item.id !== id).map((item) => pb.collection('media').update(item.id, { is_artist_portrait: false })),
+    flagged.filter((item) => item.id !== id).map((item) => updateMedia(item.id, { is_artist_portrait: false })),
   )
   if (id) {
-    return pb.collection('media').update<MediaRecord>(id, { is_artist_portrait: true })
+    return updateMedia(id, { is_artist_portrait: true })
   }
   return null
 }

@@ -8,6 +8,55 @@ function requestInfo(e) {
   }
 }
 
+/** Client IP for guest rate limits (proxy headers when behind Caddy/CF). */
+function clientIp(e, info) {
+  try {
+    if (e && typeof e.realIP === "function") {
+      const ip = String(e.realIP() || "").trim()
+      if (ip) return ip
+    }
+  } catch (_) {}
+  try {
+    if (e && typeof e.remoteIP === "function") {
+      const ip = String(e.remoteIP() || "").trim()
+      if (ip) return ip
+    }
+  } catch (_) {}
+  const h = (info && info.headers) || {}
+  const raw = String(
+    h["cf_connecting_ip"] || h["x_real_ip"] || h["x_forwarded_for"] || "",
+  ).trim()
+  if (raw) return raw.split(",")[0].trim()
+  return "unknown"
+}
+
+/** In-memory sliding window. Fine for a single PocketBase process. */
+var __guestRate = {}
+
+function guestRateLimit(bucket, max, windowMs) {
+  const now = Date.now()
+  let arr = __guestRate[bucket] || []
+  arr = arr.filter(function (t) {
+    return now - t < windowMs
+  })
+  if (arr.length >= max) {
+    __guestRate[bucket] = arr
+    return false
+  }
+  arr.push(now)
+  __guestRate[bucket] = arr
+  if (Object.keys(__guestRate).length > 4000) {
+    for (const k in __guestRate) {
+      const kept = (__guestRate[k] || []).filter(function (t) {
+        return now - t < windowMs
+      })
+      if (!kept.length) delete __guestRate[k]
+      else __guestRate[k] = kept
+    }
+  }
+  return true
+}
+
 function loadNoticeSettings() {
   try {
     return $app.findFirstRecordByFilter("notification_settings", 'key = "notifications"')
@@ -149,19 +198,36 @@ function enqueuePush(title, body, url) {
   try {
     rows = $app.findRecordsByFilter("push_subscriptions", "id != ''", "-created", 20, 0)
   } catch {
-    return
+    return 0
   }
   const pending = { title: title, body: body, url: url }
+  let sent = 0
   for (let i = 0; i < rows.length; i++) {
     try {
       rows[i].set("pending", pending)
       $app.save(rows[i])
       const sub = notifyAddress(loadNoticeSettings())
-      sendWebPush(rows[i].getString("endpoint"), sub ? "mailto:" + sub : "mailto:studio@ibrahimlens.com.ng", pending)
+      sendWebPush(
+        rows[i].getString("endpoint"),
+        sub ? "mailto:" + sub : "mailto:studio@ibrahimlens.com.ng",
+        pending,
+        rows[i].getString("p256dh"),
+        rows[i].getString("auth"),
+      )
+      sent++
     } catch (err) {
+      const msg = String(err)
+      if (msg.indexOf("HTTP 404") >= 0 || msg.indexOf("HTTP 410") >= 0) {
+        try {
+          $app.delete(rows[i])
+        } catch {
+          /* expired endpoint */
+        }
+      }
       recordMailError(err)
     }
   }
+  return sent
 }
 
 function notifyPhotographerEvent(event, subject, html, path) {
@@ -225,26 +291,20 @@ onRecordCreateRequest((e) => {
   if (trap) {
     throw new BadRequestError("Invalid request.")
   }
-  try {
-    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString().replace("T", " ")
-    const recent = $app.findRecordsByFilter(
-      "bookings",
-      "created > {:since} && source = {:source}",
-      "-created",
-      8,
-      0,
-      { since: since, source: "website" },
-    )
-    if (recent.length >= 8) {
-      throw new BadRequestError("Please try again in a few minutes.")
-    }
-  } catch (err) {
-    if (String(err).indexOf("Please try again") !== -1) throw err
-    console.log("bookings rate-limit check failed: " + err)
+  const ip = clientIp(e, info)
+  // Per-IP first so one noisy network cannot fill the global ceiling alone.
+  if (!guestRateLimit("book:ip:" + ip, 3, 10 * 60 * 1000)) {
+    throw new BadRequestError("Please try again in a few minutes.")
+  }
+  if (!guestRateLimit("book:global", 30, 10 * 60 * 1000)) {
+    throw new BadRequestError("Please try again in a few minutes.")
   }
   try {
     let answers = {}
     const rawAnswers = String(b.answers || e.record.get("answers") || "")
+    if (rawAnswers.length > 8000) {
+      throw new BadRequestError("Booking answers are too long.")
+    }
     if (rawAnswers && rawAnswers.charAt(0) === "{") {
       try {
         answers = JSON.parse(rawAnswers)
@@ -266,6 +326,8 @@ onRecordCreateRequest((e) => {
     delete answers["_guest_email"]
     e.record.set("answers", answers)
     if (!identName) throw new BadRequestError("Name is required.")
+    if (identName.length > 160) throw new BadRequestError("Name is too long.")
+    if (identEmail.length > 120) throw new BadRequestError("Email is too long.")
     let digits = identPhone.replace(/\D/g, "")
     if (digits.indexOf("234") === 0) digits = digits.slice(3)
     while (digits.indexOf("0") === 0) digits = digits.slice(1)
@@ -295,7 +357,13 @@ onRecordCreateRequest((e) => {
     e.record.set("fee_ngn", 0)
     e.record.set("amount_paid_ngn", 0)
   } catch (err) {
-    if (String(err).indexOf("valid Nigerian") !== -1 || String(err).indexOf("Name is required") !== -1) throw err
+    if (
+      String(err).indexOf("valid Nigerian") !== -1 ||
+      String(err).indexOf("Name is required") !== -1 ||
+      String(err).indexOf("too long") !== -1
+    ) {
+      throw err
+    }
     console.log("guest booking normalize failed: " + err)
     throw new BadRequestError("Could not save this booking request.")
   }
@@ -322,22 +390,41 @@ onRecordCreateRequest((e) => {
   if (e.record.getString("kind") !== "contact") {
     throw new BadRequestError("Invalid request.")
   }
+  const ip = clientIp(e, info)
+  if (!guestRateLimit("write:ip:" + ip, 3, 10 * 60 * 1000)) {
+    throw new BadRequestError("Please try again in a few minutes.")
+  }
+  if (!guestRateLimit("write:global", 30, 10 * 60 * 1000)) {
+    throw new BadRequestError("Please try again in a few minutes.")
+  }
+  let payload = e.record.get("payload")
+  if (payload == null) payload = b.payload
+  let payloadStr = ""
   try {
-    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString().replace("T", " ")
-    const recent = $app.findRecordsByFilter(
-      "form_inquiries",
-      "created > {:since} && kind = {:kind}",
-      "-created",
-      8,
-      0,
-      { since: since, kind: "contact" },
-    )
-    if (recent.length >= 8) {
-      throw new BadRequestError("Please try again in a few minutes.")
-    }
+    payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload || {})
+  } catch (_) {
+    payloadStr = ""
+  }
+  if (payloadStr.length > 4000) {
+    throw new BadRequestError("Message is too long.")
+  }
+  try {
+    const parsed = typeof payload === "string" ? JSON.parse(payload) : payload
+    if (!parsed || typeof parsed !== "object") throw new Error("bad")
+    const name = String(parsed.name || "").trim()
+    const message = String(parsed.message || parsed.body || "").trim()
+    if (!name) throw new BadRequestError("Name is required.")
+    if (name.length > 160) throw new BadRequestError("Name is too long.")
+    if (message.length > 2000) throw new BadRequestError("Message is too long.")
+    e.record.set("payload", {
+      name: name,
+      email: String(parsed.email || "").trim().slice(0, 120),
+      phone: String(parsed.phone || "").trim().slice(0, 40),
+      message: message,
+    })
   } catch (err) {
-    if (String(err).indexOf("Please try again") !== -1) throw err
-    console.log("form_inquiries rate-limit check failed: " + err)
+    if (String(err).indexOf("required") !== -1 || String(err).indexOf("too long") !== -1) throw err
+    throw new BadRequestError("Invalid message.")
   }
   e.next()
 }, "form_inquiries")
@@ -604,6 +691,13 @@ onRecordCreateRequest((e) => {
     e.next()
     return
   }
+  const info = requestInfo(e)
+  const ip = clientIp(e, info)
+  if (!guestRateLimit("feedback:ip:" + ip, 5, 10 * 60 * 1000)) {
+    throw new BadRequestError("Please try again in a few minutes.")
+  }
+  const msg = String(e.record.getString("message") || "")
+  if (msg.length > 4000) throw new BadRequestError("Feedback is too long.")
   e.record.set("reviewed", false)
   e.record.set("promoted", false)
   e.next()
@@ -779,26 +873,51 @@ routerAdd(
     const settings = loadNoticeSettings()
     if (!settings) throw new BadRequestError("Notification settings are missing.")
     const to = notifyAddress(settings)
-    if (!to) throw new BadRequestError("Set a notify address first.")
-    if (!smtpReady()) throw new BadRequestError("PocketBase SMTP is not enabled.")
     const origin = siteUrl()
+    let mailed = false
+    let pushed = 0
+    if (smtpReady() && to) {
+      try {
+        sendMail(
+          to,
+          "Test notice — Ibrahim Lens",
+          brandedMail(
+            "Test notice",
+            "<p>This is a sample from Studio → Notifications. Bookings and Deliveries were not changed.</p>",
+            origin + "/studio/settings?tab=notifications",
+            "Open Notifications",
+          ),
+        )
+        mailed = true
+        recordMailOk()
+      } catch (err) {
+        recordMailError(err)
+      }
+    }
     try {
-      sendMail(
-        to,
-        "Test notice — Ibrahim Lens",
-        brandedMail(
-          "Test notice",
-          "<p>This is a sample from Studio → Notifications. Bookings and Deliveries were not changed.</p>",
-          origin + "/studio/settings?tab=notifications",
-          "Open Notifications",
-        ),
+      pushed = enqueuePush(
+        "Test notice",
+        "This is a sample phone notice from Studio.",
+        origin + "/studio/settings?tab=notifications",
       )
-      recordMailOk()
     } catch (err) {
       recordMailError(err)
-      throw new BadRequestError(String(err))
     }
-    return e.json(200, { ok: true })
+    if (!mailed && !pushed) {
+      throw new BadRequestError(
+        "No phone is subscribed yet. On the installed Studio app, turn Mobile on, tap Save notices (or Allow phone notices), then try again.",
+      )
+    }
+    return e.json(200, { ok: true, mail: mailed, push: pushed > 0 })
+  },
+  $apis.requireAuth(),
+)
+
+routerAdd(
+  "GET",
+  "/api/ibrahim/vapid-public",
+  (e) => {
+    return e.json(200, { publicKey: vapidPublicKey() })
   },
   $apis.requireAuth(),
 )
@@ -875,12 +994,25 @@ routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
       console.log("delivery download stamp failed: " + err)
     }
   }
+  try {
+    e.response.header().set("Cache-Control", "private, no-store")
+  } catch (_) {}
   return e.fileFS($os.dirFS(dir), name)
 })
 
 routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
-  const secret = String((requestInfo(e).query || {}).secret || "").trim()
-  if (secret.length < 16) throw new BadRequestError("Missing secret.")
+  const info = requestInfo(e)
+  const ip = clientIp(e, info)
+  if (!guestRateLimit("push:ip:" + ip, 30, 60 * 1000)) {
+    throw new BadRequestError("Too many requests.")
+  }
+  let secret = ""
+  try {
+    secret = String(e.request.header.get("X-Ibrahim-Push-Secret") || "").trim()
+  } catch (_) {}
+  // Query fallback kept briefly for old SW installs; prefer header.
+  if (!secret) secret = String((info.query || {}).secret || "").trim()
+  if (secret.length < 16 || secret.length > 80) throw new BadRequestError("Missing secret.")
   let row
   try {
     row = $app.findFirstRecordByFilter("push_subscriptions", "device_secret = {:s}", { s: secret })
@@ -890,5 +1022,8 @@ routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
   const pending = parseJson(row.get("pending"), null)
   row.set("pending", null)
   $app.save(row)
+  try {
+    e.response.header().set("Cache-Control", "private, no-store")
+  } catch (_) {}
   return e.json(200, pending || {})
 })

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { PhoneNgInput } from '@/components/PhoneNgInput'
 import { Alert } from '@/components/ui/alert'
-import { getWebsiteGlobals, isContactBookingQuestion, type FormFieldDef, type WebsiteGlobals } from '@/lib/website'
+import { getWebsiteGlobals, bookingHelpText, isContactBookingQuestion, type FormFieldDef, type WebsiteGlobals } from '@/lib/website'
 import { submitPublicBooking } from '@/lib/bookings'
 import { publicErrorMessage } from '@/lib/pb-error'
 import { normalizeNgPhone, whatsappHref } from '@/lib/phone'
@@ -174,10 +174,9 @@ export function BookingSection({ globals, hideHeading = false }: { globals: Webs
       {hideHeading ? null : (
       <div className="border-b border-public-fg/10 pb-6">
         <h2 className="font-display text-3xl">Book a session</h2>
-        <p className="street-body mt-3 text-sm">
-          {globals?.booking_help_text ||
-            'Pick any preferred date and time — this is a request, not a confirmed booking.'}
-        </p>
+        {bookingHelpText(globals?.booking_help_text) ? (
+          <p className="street-body mt-3 text-sm">{bookingHelpText(globals?.booking_help_text)}</p>
+        ) : null}
       </div>
       )}
 

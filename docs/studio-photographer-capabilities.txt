@@ -1,0 +1,199 @@
+Ibrahim Lens — what the photographer can do in Studio
+======================================================
+Signed-in operator app only. Public visitors are noted at the end for contrast.
+
+
+Shell / global
+--------------
+- Sign in with email and password
+- Request a password reset link (Forgot password)
+- Move between hubs: Dashboard, Gallery, Website, Bookings, Clients, Settings
+  (desktop side rail; phone bottom bar; collapse/expand rail)
+- Toggle Night / Light appearance
+- Open Notices; open a notice (clears it); Clear all notices
+- Open Profile menu: Profile settings, Account settings, Add to Home Screen / install hint, Log out
+- Use Assistant (bottom-corner Studio desk chat): ask, Confirm writes, Pick photos, look at hubs
+- Install Studio as a PWA; allow phone push notices when VAPID is configured
+
+
+Dashboard
+---------
+- Switch money period: 7d / 30d / All
+- See Revenue total and chart (Assistant language: earned / uncollected — never “collected”)
+- Use chips (Booked, Outstanding, and when relevant Requests, Unpaid, Messages, Feedback, Expiring) to jump into hubs
+- Open This week shoots into Bookings
+- Open Latest frames into Gallery
+- Reload when data fails (no edits on Dashboard itself)
+
+
+Gallery
+-------
+Rooms: Gallery | Portfolio | Albums | Work
+
+Shared across rooms
+- Upload photos (JPEG / PNG / WebP) or drag-and-drop into the current destination
+- Rename pending camera filenames, Keep, retry or dismiss failed uploads
+- Pick existing photos From Gallery into Portfolio / an album / a Work
+- Search; Arrange (sort by date/name/tag, tag filter, column count; Work index filter Website / Private)
+- Open a photo: edit caption (saves on blur); Download / Save to Photos; toggle tags; create tags
+- More → add to / create Albums or Work
+- Select on the wall: bulk Download; Add to Portfolio; Add to album (+ create); Tag (+ create); Delete or Portfolio Remove
+
+Gallery (all photos)
+- Browse the infinite wall
+- Add to Portfolio
+- Delete from Gallery (gallery-only, or Delete both if a Portfolio copy exists)
+
+Portfolio (on the website)
+- Photos wall or Website order (drag reorder)
+- Take off / Remove from Portfolio
+- Upload straight into Portfolio or pick from Gallery
+
+Albums
+- Create, open, rename, Delete album
+- Upload into an album; remove a photo from an album
+- Photos that only lived in that album may leave with it when the album is deleted
+
+Work (website projects)
+- Create, open, rename Work; reorder the Work list
+- Toggle On the website
+- Edit Details (page address, short description, About this Work, Client, Where it was shot, Date)
+- Use as cover; remove a photo from Work; Delete Work
+- Upload into Work or pick from Gallery
+
+
+Website
+-------
+Tabs: Home | About | Contact & booking | Testimonials | FAQ | More site settings
+
+Home
+- Edit Hero slideshow (pick / upload / caption / reorder / remove)
+- Edit Booked for services (headline, lane photo / title / body)
+- Pick Work for Home
+- Atmosphere: Auto from Portfolio or Pick myself
+- Edit About tease copy
+- Open linked public pages where the UI offers them
+
+About
+- Save About subtitle / body
+- Upload, Replace, or Remove the About photo
+
+Contact & booking
+- Edit page words
+- Booking form: enable request calendar, help note, add / edit / remove questions and options
+- Reach me: public email, phone, location, Instagram
+
+Testimonials
+- Add, edit, toggle publish on Home, delete
+- Jump toward Clients Feedback where linked
+
+FAQ
+- Add, edit question + answer, delete (shown on Contact)
+
+More site settings
+- Footer & identity
+- Section labels (eyebrows)
+- SEO per page (Home, About, Portfolio, Work, Contact, Privacy, Terms)
+- Privacy and Terms body copy
+
+
+Bookings
+--------
+- Switch views: Upcoming | Incomplete | Unpaid | All
+- See Paid / Outstanding totals for the view
+- Add → Create booking (existing or new client name / phone / email, date, fee, paid, booking answers, private notes) as Pending
+- Open a booking:
+  - Set fee; Record payment
+  - Confirm (Pending → Confirmed); Complete
+  - Send photos → Clients Deliveries
+  - View client; Edit details
+- While editing:
+  - Set status Pending / Confirmed / Completed / Declined / Cancelled
+  - Save schedule; Save payment; Save notes
+  - View History
+  - Remove booking (optionally Remove person if orphaned)
+- Unaccepted website requests are not handled here → Clients Inbox
+
+
+Clients
+-------
+Tabs: Inbox | People | Feedback | Deliveries
+
+Inbox
+- Folders: Requests / Messages
+- Accept a request into Bookings
+- Delete a request (optionally remove the person)
+- Open a message (marks it read)
+- Jump to Feedback or Deliveries when the item belongs there
+
+People
+- Add or edit a person (name, phone, email, notes) → Save person
+- New booking; Send photos
+- See linked bookings
+
+Feedback
+- Edit quote / author; Save (marks reviewed)
+- Publish testimonial
+
+Deliveries
+- Add / Send photos / Create delivery from Photos, Albums, or Work (7-day link)
+- Edit client name / email / studio notes → Save
+- Email client (gallery mail); Copy link
+- Revoke / Restore; Delete
+
+
+Settings
+--------
+Tabs: Profile | Account | Portfolio tags | Brand | Notifications
+
+Profile
+- Upload / crop Save photo; Remove photo
+- Save display name
+
+Account
+- Save login email (with current password)
+- Change password
+
+Portfolio tags
+- Create, rename, delete tags (used in Gallery)
+
+Brand
+- Upload brand logo
+
+Notifications
+- Notice email address
+- Per-event Email / In-app / Mobile for: New booking request, New message, Client feedback
+- Client mail toggles: Gallery is ready, Gallery expiring
+- Allow phone notices (push)
+- Save notices; Send test
+
+
+Assistant (what it can drive for the photographer)
+-------------------------------------------------
+Classes: read | auto (no Confirm) | confirm | pick | handoff (navigate sheet) | chrome
+
+Read: desk pulse, money earned/uncollected, people, bookings, media names, albums, Work,
+Inbox/notices, Deliveries, feedback, FAQ, testimonials, SEO, Website globals, Settings digest
+
+Chrome: navigate /studio paths; night/light look; sidebar collapse/expand
+
+Auto: mark Inbox read; remember note; Accept / notes / schedule / confirm-complete booking;
+FAQ / Website globals / SEO / testimonials text; tags create-rename; notices; profile/assistant name;
+album/Work create-rename; captions & bulk rename; media tags; people update
+
+Confirm: money on booking; decline/cancel; create booking; people create; deletes (records,
+album, bulk media); Delivery revoke/restore; feedback→testimonial; gallery resend mail; test mail;
+password; login email; delete tag
+
+Pick photos then write: create Delivery (images-only), add to album, add to Work, set Featured
+(Home slideshow — not Portfolio)
+
+Handoff only (never claim Done until Studio saves): upload, Portfolio add/remove/reorder,
+Hero slideshow, About photo, brand logo, profile/Assistant avatar, Work delete
+
+
+Public site (not Studio — visitor only)
+---------------------------------------
+- Browse Home, About, Portfolio, Work, Contact, Privacy, Terms
+- Request a booking; send a contact Write message
+- Open a Delivery gallery link; leave delivery feedback

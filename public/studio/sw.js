@@ -1,6 +1,6 @@
 /* Studio PWA worker. Registered only from /studio. App-shell cache v2. */
 
-const SHELL_CACHE = 'ibrahim-studio-shell-v2'
+const SHELL_CACHE = 'ibrahim-studio-shell-v3'
 const PUSH_CACHE = 'ibrahim-studio-push'
 
 const PRECACHE = [
@@ -133,9 +133,11 @@ self.addEventListener('push', (event) => {
       }
       if (secret) {
         try {
-          const res = await fetch(
-            `${pbOrigin().replace(/\/$/, '')}/api/ibrahim/push-pending?secret=${encodeURIComponent(secret)}`,
-          )
+          // Header only — never put device_secret in the URL (logs / Referer).
+          const res = await fetch(`${pbOrigin().replace(/\/$/, '')}/api/ibrahim/push-pending`, {
+            headers: { 'X-Ibrahim-Push-Secret': secret },
+            cache: 'no-store',
+          })
           if (res.ok) {
             const data = await res.json()
             if (data.title) title = data.title

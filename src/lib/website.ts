@@ -6,6 +6,16 @@ import { listPublicPortfolio } from '@/lib/library'
 
 export const DEFAULT_WRITE_BLURB = 'Name, phone, and a short note.'
 
+/** Earlier seed copy. Treated as unset so the form does not repeat a product rule. */
+const LEGACY_BOOKING_HELP =
+  'Pick any preferred date and time — this is a request, not a confirmed booking.'
+
+export function bookingHelpText(value?: string | null) {
+  const text = (value ?? '').trim()
+  if (!text || text === LEGACY_BOOKING_HELP) return ''
+  return text
+}
+
 export const MAX_BOOKING_QUESTIONS = 8
 export const HOME_LANES_COUNT = 3
 /** Soft night Home Services cards — grow from defaults up to this cap. */
@@ -259,7 +269,7 @@ async function fetchOrCreateGlobals(): Promise<WebsiteGlobals> {
       about_body: '',
       booking_questions: [],
       booking_calendar_enabled: true,
-      booking_help_text: 'Pick any preferred date and time — this is a request, not a confirmed booking.',
+      booking_help_text: '',
     })
   } catch (error) {
     // React Strict Mode (and parallel page loads) can race two creates on key=site.

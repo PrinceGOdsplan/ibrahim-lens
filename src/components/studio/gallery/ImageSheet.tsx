@@ -5,7 +5,7 @@ import { StudioFullscreenModal } from '@/components/studio/StudioFullscreenModal
 import { StudioIcon } from '@/components/studio/StudioIconButton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { fetchAsBlob, saveBlob } from '@/lib/download'
+import { fetchAsBlob, iosSavesImagesViaShare, saveImageToDevice, shareImageFile } from '@/lib/download'
 import {
   mediaLabel,
   mediaOriginalUrl,
@@ -74,14 +74,17 @@ export function ImageSheet({
   const [nameStatus, setNameStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [more, setMore] = useState(false)
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'busy' | 'error'>('idle')
+  const [pendingShare, setPendingShare] = useState<File | null>(null)
   const nameDirty = caption.trim() !== (item.caption ?? '').trim()
   const showCaption = canOrganize || lineOnWebsite
+  const saveToPhotos = iosSavesImagesViaShare()
 
   useEffect(() => {
     setCaption(item.caption ?? '')
     setNameStatus('idle')
     setMore(false)
     setDownloadStatus('idle')
+    setPendingShare(null)
   }, [item.id, item.caption])
 
   async function saveName() {
@@ -94,8 +97,15 @@ export function ImageSheet({
     if (downloadStatus === 'busy') return
     setDownloadStatus('busy')
     try {
+      if (pendingShare) {
+        const status = await shareImageFile(pendingShare)
+        if (status === 'done') setPendingShare(null)
+        setDownloadStatus('idle')
+        return
+      }
       const blob = await fetchAsBlob(mediaOriginalUrl(item))
-      saveBlob(blob, studioDownloadFilename(item))
+      const result = await saveImageToDevice(blob, studioDownloadFilename(item))
+      setPendingShare(result.status === 'needs-gesture' ? result.file : null)
       setDownloadStatus('idle')
     } catch {
       setDownloadStatus('error')
@@ -112,7 +122,7 @@ export function ImageSheet({
       {showCaption ? (
         <div className="mt-3">
           <Label htmlFor="photo-name" className="text-xs text-studio-muted">
-            {lineOnWebsite ? 'Line on the website' : 'Photo name'}
+            {lineOnWebsite ? 'Image description' : 'Photo name'}
           </Label>
           <Input
             id="photo-name"
@@ -147,7 +157,11 @@ export function ImageSheet({
           onClick={() => void onDownload()}
         >
           <StudioIcon icon={Download} />
-          {downloadStatus === 'busy' ? 'Downloading…' : 'Download'}
+          {downloadStatus === 'busy'
+            ? 'Preparing…'
+            : pendingShare || saveToPhotos
+              ? 'Save to Photos'
+              : 'Download'}
         </button>
         {onAddToPortfolio && !inPortfolio ? (
           <button
@@ -194,6 +208,8 @@ export function ImageSheet({
         <p role="alert" className="mt-1 text-xs text-studio-danger">
           Could not download. Try again.
         </p>
+      ) : pendingShare ? (
+        <p className="mt-1 text-xs text-studio-muted">Tap Save to Photos, then Save Image.</p>
       ) : null}
 
       {canOrganize && more ? (

@@ -65,14 +65,11 @@ export async function saveNotificationSettings(
 
 export async function sendTestNotice() {
   try {
-    return await pb.send('/api/ibrahim/test-mail', { method: 'POST' })
+    return await pb.send<{ ok?: boolean; mail?: boolean; push?: boolean }>('/api/ibrahim/test-mail', {
+      method: 'POST',
+    })
   } catch (error) {
-    const detail = pbErrorMessage(error, 'Could not send a test notice.')
-    throw new Error(
-      /smtp|resend|mail/i.test(detail)
-        ? 'Could not send a test notice. Email sending is not set up.'
-        : detail,
-    )
+    throw new Error(pbErrorMessage(error, 'Could not send a test notice.'))
   }
 }
 

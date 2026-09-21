@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useRevealInView } from '@/lib/reveal-in-view'
+import { useDismissOnOutside } from '@/lib/use-dismiss-on-outside'
 import { cn } from '@/lib/utils'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { useUnsavedGuard } from '@/lib/useUnsavedGuard'
@@ -87,59 +89,123 @@ export function SectionSaveBar({
   )
 }
 
+type MenuItem = { label: string; onClick: () => void; danger?: boolean }
+
+/** Compact menu that portals above scrollers — avoids iOS open/close flicker. */
+export function StudioMenu({
+  items,
+  label,
+  trigger,
+  align = 'right',
+}: {
+  items: MenuItem[]
+  label: string
+  trigger: ReactNode
+  align?: 'left' | 'right'
+}) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  const dismiss = useCallback(() => setOpen(false), [])
+  const contains = useCallback(
+    (node: Node) => Boolean(root.current?.contains(node) || panel.current?.contains(node)),
+    [],
+  )
+  useDismissOnOutside(open, contains, dismiss)
+
+  useEffect(() => {
+    if (!open) {
+      setPos(null)
+      return
+    }
+    const place = () => {
+      const el = root.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const width = 128
+      const left =
+        align === 'right'
+          ? Math.min(window.innerWidth - width - 8, Math.max(8, rect.right - width))
+          : Math.min(window.innerWidth - width - 8, Math.max(8, rect.left))
+      setPos({ top: rect.bottom + 4, left })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, align])
+
+  function runItem(item: MenuItem) {
+    setOpen(false)
+    // Let the menu unmount before native file pickers / sheets open on iOS.
+    window.setTimeout(() => item.onClick(), 0)
+  }
+
+  return (
+    <div className="relative inline-flex" ref={root}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="inline-flex items-center justify-center"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {trigger}
+      </button>
+      {open && pos && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={panel}
+              role="menu"
+              className="fixed z-[80] min-w-[8rem] border border-studio-border/80 bg-studio-bg py-1 shadow-md"
+              style={{ top: pos.top, left: pos.left }}
+            >
+              {items.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  role="menuitem"
+                  className={cn(
+                    'flex min-h-11 w-full items-center px-3 text-left text-xs hover:bg-studio-panel',
+                    item.danger ? 'text-studio-danger' : 'text-studio-fg',
+                  )}
+                  onClick={() => runItem(item)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  )
+}
+
 /** Compact ⋯ menu for Pick / Upload / Remove style actions. */
 export function StudioActionMenu({
   items,
   label = 'More',
 }: {
-  items: { label: string; onClick: () => void; danger?: boolean }[]
+  items: MenuItem[]
   label?: string
 }) {
-  const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
   return (
-    <div className="relative" ref={root}>
-      <button
-        type="button"
-        aria-label={label}
-        aria-expanded={open}
-        // A thumb needs a real target even though the glyph is tiny.
-        className="inline-flex h-11 w-11 items-center justify-center text-sm leading-none text-studio-muted hover:text-studio-fg"
-        onClick={() => setOpen((v) => !v)}
-      >
-        ⋯
-      </button>
-      {open ? (
-        <div className="absolute right-0 z-20 mt-1 min-w-[7.5rem] border border-studio-border/80 bg-studio-bg py-1 shadow-md">
-          {items.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              className={cn(
-                'flex min-h-11 w-full items-center px-3 text-left text-xs hover:bg-studio-panel',
-                item.danger ? 'text-studio-danger' : 'text-studio-fg',
-              )}
-              onClick={() => {
-                setOpen(false)
-                item.onClick()
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+    <StudioMenu
+      label={label}
+      items={items}
+      trigger={
+        <span className="inline-flex h-11 w-11 items-center justify-center text-sm leading-none text-studio-muted hover:text-studio-fg">
+          ⋯
+        </span>
+      }
+    />
   )
 }
 

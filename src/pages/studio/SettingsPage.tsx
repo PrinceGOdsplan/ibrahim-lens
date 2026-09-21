@@ -5,10 +5,10 @@ import { Label } from '@/components/ui/label'
 import { Alert } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useConfirm } from '@/components/ui/confirm'
-import { Bell, Image, Tag, User, UserCircle } from 'lucide-react'
+import { Bell, Bot, Image, Tag, User, UserCircle } from 'lucide-react'
 import { StudioTabs } from '@/components/studio/StudioTabs'
 import { StudioHubHeader } from '@/components/studio/StudioHubHeader'
-import { StudioHubShell, StudioScrollPane } from '@/components/studio/StudioHubShell'
+import { StudioHubShell, StudioScrollPane, StudioWorkSurface } from '@/components/studio/StudioHubShell'
 import { useAuth } from '@/lib/auth'
 import { profilePhotoUrl } from '@/lib/studio-identity'
 import { useUrlTab } from '@/lib/useUrlTab'
@@ -39,13 +39,27 @@ import {
   type NoticeChannels,
 } from '@/lib/notice-channels'
 import { useFadeNotice } from '@/lib/useFadeNotice'
-import { studioInstallCopy, subscribeStudioPush } from '@/lib/studio-pwa'
+import { subscribeStudioPush, loadStudioVapidPublicKey } from '@/lib/studio-pwa'
+import {
+  assistantAvatarUrl,
+  assistantDisplayName,
+  loadAssistantThread,
+  saveAssistantIdentity,
+  type AssistantThreadRecord,
+} from '@/lib/assistant'
 import { ProfilePhotoField } from '@/components/studio/ProfilePhotoField'
 import { formatDateTime } from '@/lib/format'
 
-type SettingsTab = 'profile' | 'account' | 'tags' | 'brand' | 'notifications'
+type SettingsTab = 'profile' | 'account' | 'tags' | 'brand' | 'notifications' | 'assistant'
 
-const SETTINGS_TABS: readonly SettingsTab[] = ['profile', 'account', 'tags', 'brand', 'notifications']
+const SETTINGS_TABS: readonly SettingsTab[] = [
+  'profile',
+  'account',
+  'tags',
+  'brand',
+  'notifications',
+  'assistant',
+]
 
 export function StudioSettingsPage() {
   const { user, refresh } = useAuth()
@@ -58,9 +72,12 @@ export function StudioSettingsPage() {
   const [galleryOn, setGalleryOn] = useState(true)
   const [expiringOn, setExpiringOn] = useState(true)
   const [mobileEnabled, setMobileEnabled] = useState(false)
+  const [vapidReady, setVapidReady] = useState<boolean | null>(null)
   const [smtpReady, setSmtpReady] = useState<boolean | null>(null)
   const [newTag, setNewTag] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [assistantRow, setAssistantRow] = useState<AssistantThreadRecord | null>(null)
+  const [assistantName, setAssistantName] = useState('')
   const [loginEmail, setLoginEmail] = useState('')
   const [emailPassword, setEmailPassword] = useState('')
   const [oldPassword, setOldPassword] = useState('')
@@ -72,7 +89,12 @@ export function StudioSettingsPage() {
   const { confirm, dialog: confirmDialog } = useConfirm()
 
   async function refreshSettings() {
-    const [t, b, n] = await Promise.all([listTags(), getBrandSettings(), getNotificationSettings()])
+    const [t, b, n, a] = await Promise.all([
+      listTags(),
+      getBrandSettings(),
+      getNotificationSettings(),
+      loadAssistantThread().catch(() => null),
+    ])
     setTags(t)
     setBrand(b)
     setNotices(n)
@@ -81,7 +103,15 @@ export function StudioSettingsPage() {
     setGalleryOn(n.client_gallery !== false)
     setExpiringOn(n.client_expiring !== false)
     setMobileEnabled(isStudioStandalone())
+    setAssistantRow(a)
+    setAssistantName(a?.assistant_name?.trim() || '')
     setLoaded(true)
+    try {
+      const key = await loadStudioVapidPublicKey()
+      setVapidReady(Boolean(key))
+    } catch {
+      setVapidReady(false)
+    }
     try {
       const health = await pb.send<{ smtp?: boolean }>('/api/ibrahim/mail-health', { method: 'GET' })
       setSmtpReady(Boolean(health?.smtp))
@@ -204,6 +234,61 @@ export function StudioSettingsPage() {
     }
   }
 
+  async function onSaveAssistantName(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const updated = await saveAssistantIdentity({ name: assistantName })
+      setAssistantRow(updated)
+      setAssistantName(updated.assistant_name?.trim() || '')
+      setMessage('Assistant name saved.')
+    } catch (e) {
+      setError(pbErrorMessage(e, 'Could not save Assistant name.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onSaveAssistantAvatar(file: File) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const updated = await saveAssistantIdentity({ avatar: file })
+      setAssistantRow(updated)
+      setMessage('Assistant picture updated.')
+    } catch (e) {
+      setError(pbErrorMessage(e, 'Could not update Assistant picture.'))
+      throw e
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onRemoveAssistantAvatar() {
+    const ok = await confirm({
+      title: 'Remove Assistant picture?',
+      body: 'Chat will use a quiet fallback until you add a picture again.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    })
+    if (!ok) return
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const updated = await saveAssistantIdentity({ clearAvatar: true })
+      setAssistantRow(updated)
+      setMessage('Assistant picture removed.')
+    } catch (e) {
+      setError(pbErrorMessage(e, 'Could not remove Assistant picture.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function onChangePassword(event: FormEvent) {
     event.preventDefault()
     if (!user) return
@@ -252,6 +337,7 @@ export function StudioSettingsPage() {
 
   const logo = brandLogoUrl(brand)
   const photo = profilePhotoUrl(user, '200x200')
+  const assistantPhoto = assistantAvatarUrl(assistantRow)
 
   return (
     <StudioHubShell>
@@ -264,6 +350,7 @@ export function StudioSettingsPage() {
             primary={[
               { id: 'profile', label: 'Profile', icon: UserCircle },
               { id: 'account', label: 'Account', icon: User },
+              { id: 'assistant', label: 'Assistant', icon: Bot },
               { id: 'tags', label: 'Portfolio tags', icon: Tag },
               { id: 'brand', label: 'Brand', icon: Image },
               { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -275,14 +362,12 @@ export function StudioSettingsPage() {
         {error ? <Alert variant="error">{error}</Alert> : null}
         {message ? <Alert variant="success">{message}</Alert> : null}
 
+        <StudioWorkSurface>
         {tab === 'profile' ? (
           <div className="space-y-8">
             <div className="space-y-4">
               <div>
                 <h2 className="font-display text-xl">Profile</h2>
-                <p className="mt-1 text-sm text-studio-muted">
-                  Name and photo appear on Dashboard and in the Studio header.
-                </p>
               </div>
               <ProfilePhotoField
                 photoUrl={photo}
@@ -380,13 +465,47 @@ export function StudioSettingsPage() {
           </div>
         ) : null}
 
+        {tab === 'assistant' ? (
+          <div className="space-y-8">
+            <div className="space-y-4">
+              <div>
+                <h2 className="font-display text-xl">Assistant</h2>
+                <p className="mt-1 text-sm text-studio-muted">
+                  Name and picture shown in the Studio chat. Separate from your profile photo.
+                </p>
+              </div>
+              <ProfilePhotoField
+                photoUrl={assistantPhoto}
+                busy={busy}
+                onSave={onSaveAssistantAvatar}
+                onRemove={assistantPhoto ? onRemoveAssistantAvatar : undefined}
+              />
+            </div>
+            <form onSubmit={onSaveAssistantName} className="space-y-4 border-t border-studio-border pt-8">
+              <div className="space-y-2">
+                <Label htmlFor="assistant-display-name">Display name</Label>
+                <Input
+                  id="assistant-display-name"
+                  value={assistantName}
+                  onChange={(e) => setAssistantName(e.target.value)}
+                  placeholder="Assistant"
+                  maxLength={64}
+                />
+                <p className="text-xs text-studio-muted">
+                  Leave blank to show “{assistantDisplayName(null)}”.
+                </p>
+              </div>
+              <Button type="submit" disabled={busy}>
+                Save name
+              </Button>
+            </form>
+          </div>
+        ) : null}
+
         {tab === 'tags' ? (
           <section className="space-y-4">
             <div>
               <h2 className="font-display text-xl">Portfolio tags</h2>
-              <p className="mt-1 text-sm text-studio-muted">
-                Create and rename tags here. They also appear when you manage an image in Gallery.
-              </p>
             </div>
             <form onSubmit={onCreateTag} className="space-y-1.5">
               <Label htmlFor="new-tag">Tag name</Label>
@@ -447,7 +566,7 @@ export function StudioSettingsPage() {
               </ul>
             ) : loaded ? (
               <p className="rounded-md border border-dashed border-studio-border px-3 py-4 text-sm text-studio-muted">
-                No tags yet. Add your first tag above (e.g. Weddings, Portraits).
+                No tags yet.
               </p>
             ) : (
               <div className="space-y-2">
@@ -464,8 +583,7 @@ export function StudioSettingsPage() {
             <div>
               <h2 className="font-display text-xl">Brand logo</h2>
               <p className="mt-1 text-sm text-studio-muted">
-                Logo visitors see on the site — not your Studio profile photo. JPEG, PNG, or WebP, max{' '}
-                {getMaxUploadMb()}MB.
+                JPEG, PNG, or WebP, max {getMaxUploadMb()}MB.
               </p>
             </div>
             {logo ? <img src={logo} alt="Site logo" className="h-16 w-auto object-contain" /> : null}
@@ -481,18 +599,12 @@ export function StudioSettingsPage() {
             <div>
               <h2 className="font-display text-xl">Notifications</h2>
               <p className="mt-2 text-sm text-studio-muted">
-                Notices for new requests, messages, and feedback. They also stay in Inbox. Mail comes from
-                hello@ibrahimlens.com.ng when email is set up.
-              </p>
-              <p className="mt-2 text-sm text-studio-muted">
                 {smtpReady === true
-                  ? 'Email notices are ready.'
+                  ? 'Email notices are on.'
                   : smtpReady === false
-                    ? 'Email notices are not set up yet. Inbox still keeps everything.'
-                    : 'Could not check whether email notices are ready.'}
-                {notices?.last_sent_at
-                  ? ` Last sent ${formatDateTime(notices.last_sent_at)}.`
-                  : ''}
+                    ? 'Email notices are off.'
+                    : 'Could not check email notices.'}
+                {notices?.last_sent_at ? ` Last sent ${formatDateTime(notices.last_sent_at)}.` : ''}
               </p>
             </div>
             <div className="space-y-2">
@@ -502,10 +614,12 @@ export function StudioSettingsPage() {
                 type="email"
                 value={notifyEmail}
                 onChange={(e) => setNotifyEmail(e.target.value)}
-                placeholder="Defaults to your login email if empty"
+                placeholder="Login email"
               />
             </div>
-            <p className="text-sm text-studio-muted">{studioInstallCopy()}</p>
+            {vapidReady === false ? (
+              <Alert variant="error">Phone notices are unavailable.</Alert>
+            ) : null}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[20rem] text-left text-sm">
                 <thead>
@@ -546,27 +660,22 @@ export function StudioSettingsPage() {
                 </tbody>
               </table>
             </div>
-            {!mobileEnabled ? (
-              <p className="text-sm text-studio-muted">
-                Phone notices stay off until you add Studio to your home screen.
-              </p>
-            ) : (
+            {mobileEnabled ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  subscribeStudioPush().catch((e) => setError(e instanceof Error ? e.message : String(e)))
+                  subscribeStudioPush()
+                    .then(() => setMessage('Phone notices allowed on this device.'))
+                    .catch((e) => setError(e instanceof Error ? e.message : String(e)))
                 }
               >
                 Allow phone notices
               </Button>
-            )}
+            ) : null}
             <div className="space-y-3 border-t border-studio-border pt-4">
               <p className="font-medium">Client mail</p>
-              <p className="text-sm text-studio-muted">
-                Only if you put their email on the Delivery when you created it.
-              </p>
               <label className="flex min-h-11 items-center gap-3 text-sm">
                 <input
                   type="checkbox"
@@ -583,7 +692,7 @@ export function StudioSettingsPage() {
                   checked={expiringOn}
                   onChange={(e) => setExpiringOn(e.target.checked)}
                 />
-                <span>Gallery expiring, only if they have not downloaded</span>
+                <span>Gallery expiring</span>
               </label>
             </div>
             {notices?.last_send_error ? (
@@ -607,7 +716,13 @@ export function StudioSettingsPage() {
                       channels,
                     })
                     setNotices(saved)
-                    setMessage('Notification settings saved.')
+                    const wantsMobile = PHOTOGRAPHER_NOTICE_EVENTS.some((row) => channels[row.id].mobile)
+                    if (wantsMobile) await subscribeStudioPush()
+                    setMessage(
+                      wantsMobile
+                        ? 'Notification settings saved. Phone notices allowed on this device.'
+                        : 'Notification settings saved.',
+                    )
                   } catch (e) {
                     setError(e instanceof Error ? e.message : String(e))
                   } finally {
@@ -635,9 +750,18 @@ export function StudioSettingsPage() {
                         channels,
                       })
                     }
-                    await sendTestNotice()
+                    if (PHOTOGRAPHER_NOTICE_EVENTS.some((row) => channels[row.id].mobile)) {
+                      await subscribeStudioPush()
+                    }
+                    const result = await sendTestNotice()
                     await refreshSettings()
-                    setMessage('Test notice sent. Nothing in Bookings or Deliveries changed.')
+                    setMessage(
+                      result?.push
+                        ? 'Test sent to your phone.'
+                        : result?.mail
+                          ? 'Test email sent.'
+                          : 'Test notice sent. Nothing in Bookings or Deliveries changed.',
+                    )
                   } catch (e) {
                     setError(e instanceof Error ? e.message : String(e))
                   } finally {
@@ -652,6 +776,7 @@ export function StudioSettingsPage() {
         ) : null}
 
         {confirmDialog}
+        </StudioWorkSurface>
       </StudioScrollPane>
     </StudioHubShell>
   )

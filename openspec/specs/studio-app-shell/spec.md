@@ -206,15 +206,15 @@ Studio hub navigation SHALL pair a lucide icon with each hub name (Dashboard, Ga
 - **THEN** they can still read Gallery, Website, Clients, and the other hub names without relying on the icon alone
 
 ### Requirement: Studio app header
-Studio SHALL present a full-width app header on every hub. The header SHALL hold in-app notices and a profile control. The header SHALL NOT repeat the current hub’s title — the hub toolbar is the only place the hub is named on screen. Phone and desktop SHALL share this header. The header SHALL include a control to open hub navigation on phone-width viewports.
+Studio SHALL NOT present a full-width product header on desktop-width viewports. Operator chrome on desktop SHALL live on the rail as specified in Desktop rail is the operator chrome. On phone-width viewports, Studio SHALL present a compact operator strip (notices, appearance, profile) that SHALL NOT repeat the current hub’s title — the page recipe is the only place the hub is named on screen.
 
 #### Scenario: Open Studio on desktop
 - **WHEN** the photographer opens any Studio hub on a desktop-width viewport
-- **THEN** they see an app header with notices and profile, and the hub title is in the hub toolbar rather than in the header
+- **THEN** they see rail operator chrome and the hub title on the page, and they do not see a full-width product header
 
 #### Scenario: Open Studio on a phone
 - **WHEN** the photographer opens any Studio hub on a phone-width viewport
-- **THEN** they see the same header pattern (menu, notices, profile) rather than a distinct phone-only title bar that names the hub
+- **THEN** they see a compact operator strip that does not name the hub
 
 ### Requirement: Collapsible hub sidebar
 On desktop-width viewports, Studio hub navigation SHALL remain present and SHALL be collapsible. Expanded, each hub SHALL show its icon and its word. Collapsed, each hub SHALL show its icon with the word available to assistive technology. The collapsed preference SHALL persist for the photographer’s browser. Phone-width viewports SHALL keep drawer navigation and SHALL NOT show the persistent sidebar.
@@ -227,20 +227,56 @@ On desktop-width viewports, Studio hub navigation SHALL remain present and SHALL
 - **WHEN** the photographer reloads Studio after collapsing the sidebar
 - **THEN** the sidebar is still collapsed
 
+### Requirement: Desktop rail is the operator chrome
+On desktop-width viewports, Studio SHALL present hub navigation, in-app notices, the appearance toggle, and the profile control on the side rail. Studio SHALL NOT present a full-width product header above the rail and page on desktop. The rail MAY collapse to icons as already specified; operator controls SHALL remain reachable when the rail is collapsed.
+
+#### Scenario: Open Studio on desktop
+- **WHEN** the photographer opens any Studio hub on a desktop-width viewport
+- **THEN** they see the rail with hubs and operator controls, and they do not see a full-width bar that repeats the product name above the page
+
+#### Scenario: Notices from the rail
+- **WHEN** the photographer opens notices on desktop
+- **THEN** the control lives on the rail, not in a product header above the page
+
+### Requirement: Phone keeps a compact operator strip
+On phone-width viewports, Studio SHALL present notices, appearance, and profile in a compact strip that does not name the current hub. Hub navigation on the phone SHALL be the bottom hub bar when that bar is present. Studio SHALL NOT restore a hamburger drawer as the phone hub list.
+
+#### Scenario: Open Studio on a phone
+- **WHEN** the photographer opens any Studio hub on a phone-width viewport
+- **THEN** they see a compact operator strip (notices, appearance, profile) and can reach every hub from the bottom bar without a hamburger
+
 ### Requirement: One hub toolbar
-Every Studio hub SHALL pin a toolbar at the top of the hub pane. That toolbar SHALL present exactly one hub title, then that hub’s tabs (when it has tabs) using the shared tab idiom, then that hub’s primary actions. It SHALL NOT lead with a sentence that explains the hub. Secondary controls MAY sit behind a disclosure on that toolbar.
+Every Studio hub SHALL follow one page recipe: the hub title, that hub’s tabs when it has tabs, that hub’s primary actions, then a single primary work surface. The work surface SHALL sit in a breathing content width on wide desktop viewports rather than stretching edge-to-edge as a stack of equal cages. Website MAY keep its CMS sections inside that surface. Gallery’s photo wall IS the work surface.
 
 #### Scenario: Open Website
 - **WHEN** the photographer opens Website
-- **THEN** they see a pinned toolbar titled Website with the same tab treatment as Gallery, and no explaining subtitle in the scroll
+- **THEN** they see pinned chrome titled Website with the same tab treatment as Gallery, and no explaining subtitle in the scroll
 
 #### Scenario: Open Dashboard
 - **WHEN** the photographer opens Dashboard
-- **THEN** they see a pinned toolbar titled Dashboard, and Needs you is the surface below — not a page title inside a scrolling article
+- **THEN** they see pinned chrome titled Dashboard, and the instrument is the surface below — not a page title inside a scrolling article
 
 #### Scenario: Open Bookings
 - **WHEN** the photographer opens Bookings
-- **THEN** booking views are tabs in that toolbar, not a third pill style
+- **THEN** booking views are tabs in that chrome, not a third pill style
+
+### Requirement: Studio page recipe
+Every Studio hub SHALL follow one page recipe: the hub title, that hub’s tabs when it has tabs, that hub’s primary actions, then a single primary work surface. The work surface SHALL sit in a breathing content width on wide desktop viewports rather than stretching edge-to-edge as a stack of equal cages. Website MAY keep its CMS sections inside that surface. Gallery’s photo wall IS the work surface.
+
+#### Scenario: Open Bookings
+- **WHEN** the photographer opens Bookings on desktop
+- **THEN** they see title Bookings, the shared tab idiom, primary actions, and one work surface for the list and detail
+
+#### Scenario: Open Website
+- **WHEN** the photographer opens Website
+- **THEN** they see the same title / tabs / actions recipe, with the CMS sections inside the work surface rather than a second product header
+
+### Requirement: Hub titles use Studio sans
+Hub titles on the page recipe SHALL use the Studio sans family (Figtree). They SHALL NOT use Cormorant. Money and counts SHALL remain lining tabular Studio sans as already specified.
+
+#### Scenario: Read a hub title
+- **WHEN** the photographer opens Dashboard, Gallery, Website, Bookings, Clients, or Settings
+- **THEN** the hub title is set in Figtree, not Cormorant
 
 ### Requirement: Clients hub query params survive tab changes
 Changing Clients tabs (Inbox, Deliveries, Feedback, People) SHALL keep query keys that still apply to the destination (`person`, `booking`, `delivery`, `feedback`) instead of replacing the search string with only `tab`.
@@ -257,7 +293,7 @@ A Bookings “View client” link SHALL open Clients → People with that person
 - **THEN** People shows that Person’s record
 
 ### Requirement: Studio light and Soft-night–related night modes
-Studio SHALL offer exactly two appearance modes: **light** (default desk) and **night** (warm Soft-night–related colour ladder). Night SHALL reuse Soft night ground / raised / text kinship for glare reduction, while Studio type (Cormorant / Figtree) and tool chrome patterns remain Studio. Cool graphite or additional gray modes SHALL NOT be offered.
+Studio SHALL offer exactly two appearance modes: **light** (default desk) and **night** (warm Soft-night–related colour ladder). Night SHALL reuse Soft night ground / raised / text kinship for glare reduction, while Studio type and tool chrome patterns remain Studio. Hub titles SHALL stay Figtree in both modes. Cool graphite or additional gray modes SHALL NOT be offered. Studio SHALL NOT default to night.
 
 #### Scenario: Default is light
 - **WHEN** the photographer opens Studio with no stored appearance preference
@@ -269,10 +305,10 @@ Studio SHALL offer exactly two appearance modes: **light** (default desk) and **
 
 #### Scenario: Studio type unchanged in night
 - **WHEN** night mode is active
-- **THEN** Studio headlines and UI text still use Cormorant / Figtree rather than public Syne / Sora
+- **THEN** Studio hub titles and UI text still use Figtree rather than public Syne / Sora, and money and counts stay lining tabular Figtree
 
 ### Requirement: Header sun/moon appearance toggle
-Studio SHALL expose an icon-only sun/moon control in the app header that toggles between light and night. The control SHALL present at least a 44 by 44 CSS pixel touch target, SHALL be operable on phone and desktop, and SHALL NOT require opening Settings.
+Studio SHALL expose an icon-only sun/moon control that toggles between light and night. On desktop the control SHALL live on the rail. On phone it SHALL live on the compact operator strip. The control SHALL present at least a 44 by 44 CSS pixel touch target, SHALL be operable on phone and desktop, and SHALL NOT require opening Settings.
 
 #### Scenario: Toggle from Gallery
 - **WHEN** the photographer is in Gallery and activates the sun/moon control
@@ -281,6 +317,10 @@ Studio SHALL expose an icon-only sun/moon control in the app header that toggles
 #### Scenario: Accessible name
 - **WHEN** assistive technology reads the appearance control
 - **THEN** it has a programmatic name that reflects the action (e.g. switch to night / switch to light)
+
+#### Scenario: Desktop placement
+- **WHEN** the photographer looks for appearance on a desktop-width viewport
+- **THEN** the control is on the rail, not in a full-width product header
 
 ### Requirement: Appearance preference persists locally
 Studio SHALL persist the chosen appearance mode in browser `localStorage` and restore it on subsequent Studio visits on that browser. Clearing the preference (or first visit) SHALL fall back to light.
@@ -342,4 +382,52 @@ Lucide marks inside Studio hub **content** (lists, create panels, inbox folders,
 #### Scenario: Content action icons match Gallery
 - **WHEN** the photographer uses Copy link, Revoke, or Add on Deliveries
 - **THEN** those actions use the same line-icon treatment as Gallery Add / Arrange, not a different stroke or a third button language
+
+### Requirement: Assistant sheet handoffs stay on the current desk
+When Assistant requests an upload sheet, Website tab, Settings tab, or Pick photos modal, Studio SHALL open that surface on the authenticated Studio shell without adding a sixth hub and without leaving the photographer on a blank route. Closing the sheet SHALL return them to the hub they were viewing.
+
+#### Scenario: Upload sheet from Assistant
+- **WHEN** Assistant requests the Gallery upload handoff
+- **THEN** Gallery is active and the upload sheet is open, and the bottom-corner Assistant control remains available
+
+#### Scenario: Settings tab from Assistant
+- **WHEN** Assistant navigates to Settings Notifications
+- **THEN** Settings shows the Notifications tab and no separate Assistant hub appears in the rail
+
+### Requirement: Assistant overlay uses configured identity
+The Assistant overlay chrome SHALL present the configured Assistant display name and avatar (or their defaults) so the photographer recognizes who they are chatting with. The bottom-corner control MAY keep a compact Assistant affordance; identity detail lives in the open overlay.
+
+#### Scenario: Open overlay with custom avatar
+- **WHEN** an Assistant profile picture is set and the photographer opens Assistant
+- **THEN** the overlay header shows that avatar beside the configured name
+
+### Requirement: Bottom-corner Assistant chat
+Every authenticated Studio hub SHALL show a floating Assistant control in the bottom-right corner of the viewport (above the phone hub bar on narrow viewports), with a visible Assistant label so it is not mistaken for a support chat, and at least a 44 by 44 CSS pixel target. The control SHALL NOT show a numeric badge or a Needs-you dot. Activating it SHALL open the Assistant overlay on the current hub rather than navigating to a new hub. The public site and the Studio login page SHALL NOT show this control.
+
+#### Scenario: Open Assistant from Gallery
+- **WHEN** the photographer is on Gallery and activates Assistant
+- **THEN** the Assistant overlay opens over Gallery and the corner control still shows Assistant with no badge
+
+#### Scenario: Not a support chat
+- **WHEN** the photographer looks at the closed corner control
+- **THEN** the visible word Assistant is on the control, not a generic chat or support mark
+
+#### Scenario: Same control on Settings
+- **WHEN** the photographer is on Settings
+- **THEN** the same bottom-corner Assistant control is present as on Dashboard
+
+#### Scenario: Accessible name
+- **WHEN** assistive technology reads the Assistant control
+- **THEN** it has a programmatic name Assistant
+
+### Requirement: Assistant overlay matches Studio appearance
+The Assistant overlay SHALL follow light and night Studio tokens, including when portalled. It SHALL be usable on a phone-width viewport (sheet or equivalent) without requiring desktop-only chrome. Send and Confirm targets SHALL meet the Studio 44 by 44 CSS pixel touch target on touch-capable viewports.
+
+#### Scenario: Night drawer
+- **WHEN** night is active and Assistant is open
+- **THEN** the overlay uses night Studio tokens rather than light or public Soft night type
+
+#### Scenario: Assistant is not a hub
+- **WHEN** the photographer looks at the sidebar or phone hub bar
+- **THEN** Assistant is not a sixth hub; it is only the bottom-corner control
 

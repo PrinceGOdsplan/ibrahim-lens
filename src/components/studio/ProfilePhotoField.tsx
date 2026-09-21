@@ -171,7 +171,7 @@ export function ProfilePhotoField({ photoUrl, busy, onSave, onRemove }: Props) {
         <div className="min-w-0 flex-1 space-y-2 text-center sm:text-left">
           <p className="text-sm font-medium text-studio-fg">Profile photo</p>
           <p className="text-sm text-studio-muted">
-            Shown in the Studio header. Crop to a circle before it saves. JPEG, PNG, or WebP · max{' '}
+            Crop to a circle before it saves. JPEG, PNG, or WebP · max{' '}
             {getMaxUploadMb()}MB.
           </p>
           <div className="flex flex-wrap justify-center gap-2 sm:justify-start">

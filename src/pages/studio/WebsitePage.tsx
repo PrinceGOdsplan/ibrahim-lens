@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useId, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AboutTab } from '@/components/studio/website/AboutTab'
@@ -42,12 +41,13 @@ import {
 import { CircleHelp, Home, Mail, Quote, User } from 'lucide-react'
 import { StudioTabs } from '@/components/studio/StudioTabs'
 import { StudioHubHeader } from '@/components/studio/StudioHubHeader'
-import { StudioHubShell, StudioScrollPane } from '@/components/studio/StudioHubShell'
+import { StudioHubShell, StudioScrollPane, StudioWorkSurface } from '@/components/studio/StudioHubShell'
 import { Alert, PartialDataNotice } from '@/components/ui/alert'
 import { Skeleton, SkeletonText } from '@/components/ui/skeleton'
 import { useConfirm } from '@/components/ui/confirm'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { useUrlTab } from '@/lib/useUrlTab'
+import { useStudioRecordRefresh } from '@/lib/studio-record-sync'
 import { settleAll } from '@/lib/useAsyncData'
 
 function WebsiteSkeleton() {
@@ -144,16 +144,32 @@ export function StudioWebsitePage() {
     return load()
   }, [load])
 
+  const onAssistantWrite = useCallback(
+    (change: { collection: string; id: string }) => {
+      void refresh().then(() => {
+        setMessage(change.collection === 'website_globals' ? 'Website settings changed.' : 'This page changed.')
+      })
+    },
+    [refresh],
+  )
+  useStudioRecordRefresh(['faq_items', 'testimonials', 'website_globals'], onAssistantWrite)
+
   async function run(action: () => Promise<void>, ok?: string) {
     setBusy(true)
     setError(null)
     setMessage(null)
     try {
       await action()
-      await refresh()
-      if (ok) setMessage(ok)
     } catch (e) {
       setError(pbErrorMessage(e))
+      setBusy(false)
+      return
+    }
+    try {
+      await refresh()
+      if (ok) setMessage(ok)
+    } catch {
+      if (ok) setMessage(ok)
     } finally {
       setBusy(false)
     }
@@ -171,10 +187,15 @@ export function StudioWebsitePage() {
     setError(null)
     try {
       await saveWebsiteGlobals(globals.id, data)
-      await refresh()
     } catch (e) {
       setError(pbErrorMessage(e))
+      setBusy(false)
       throw e
+    }
+    try {
+      await refresh()
+    } catch {
+      /* write already landed */
     } finally {
       setBusy(false)
     }
@@ -207,102 +228,103 @@ export function StudioWebsitePage() {
       ) : null}
       {!loaded ? <WebsiteSkeleton /> : null}
 
-      {!globals ? <p className="text-sm text-studio-muted">Loading…</p> : null}
-
-      {globals && tab === 'home' ? (
-        <HomeTab
-          globals={globals}
-          portfolio={portfolio}
-          allMedia={portfolio}
-          websiteWork={websiteWork}
-          busy={busy}
-          onSave={saveGlobals}
-          onRefresh={refresh}
-        />
-      ) : null}
-
-      {globals && tab === 'about' ? (
-        <AboutTab globals={globals} artistPortrait={artistPortrait} busy={busy} onSave={saveGlobals} onRefresh={refresh} />
-      ) : null}
-
-      {globals && tab === 'contact' ? <ContactBookingTab globals={globals} busy={busy} onSave={saveGlobals} /> : null}
-
-      {tab === 'testimonials' ? (
-        <TestimonialsEditor
-          items={testimonials}
-          busy={busy}
-          onCreate={() =>
-            run(
-              () =>
-                createTestimonial({
-                  quote: 'New quote…',
-                  author_name: 'Client',
-                  published: false,
-                }).then(() => undefined),
-              'Testimonial added.',
-            )
-          }
-          onSave={async (id, data) => {
-            await updateTestimonial(id, data)
-            await refresh()
-          }}
-          onDelete={async (id) => {
-            const item = testimonials.find((t) => t.id === id)
-            const ok = await confirm({
-              title: 'Delete this testimonial?',
-              body: item
-                ? `"${item.quote.slice(0, 80)}${item.quote.length > 80 ? '…' : ''}" will be removed from the site. This cannot be undone.`
-                : 'It will be removed from the site. This cannot be undone.',
-              confirmLabel: 'Delete',
-              destructive: true,
-            })
-            if (!ok) return
-            await run(() => deleteTestimonial(id).then(() => undefined), 'Testimonial deleted.')
-          }}
-        />
-      ) : null}
-
-      {tab === 'faq' ? (
-        <FaqEditor
-          items={faq}
-          busy={busy}
-          onCreate={() => run(() => createFaq({ question: 'New question?', answer: 'Answer…' }).then(() => undefined), 'FAQ added.')}
-          onSave={async (id, data) => {
-            await updateFaq(id, data)
-            await refresh()
-          }}
-          onDelete={async (id) => {
-            const item = faq.find((f) => f.id === id)
-            const ok = await confirm({
-              title: 'Delete this FAQ?',
-              body: item
-                ? `"${item.question}" will be removed from the site. This cannot be undone.`
-                : 'It will be removed from the site. This cannot be undone.',
-              confirmLabel: 'Delete',
-              destructive: true,
-            })
-            if (!ok) return
-            await run(() => deleteFaq(id).then(() => undefined), 'FAQ deleted.')
-          }}
-        />
-      ) : null}
-
       {globals ? (
-        <SiteChromePanel
-          globals={globals}
-          seo={seo}
-          busy={busy}
-          open={chromeOpen}
-          onToggle={() => setChromeOpen((o) => !o)}
-          onSave={saveGlobals}
-          onSaveSeo={async (pageKey, title, description) => {
-            await upsertSeo(pageKey, title, description)
-            await refresh()
-          }}
-        />
+        <StudioWorkSurface className="space-y-6">
+          {tab === 'home' ? (
+            <HomeTab
+              globals={globals}
+              portfolio={portfolio}
+              allMedia={portfolio}
+              websiteWork={websiteWork}
+              busy={busy}
+              onSave={saveGlobals}
+              onRefresh={refresh}
+            />
+          ) : null}
+
+          {tab === 'about' ? (
+            <AboutTab globals={globals} artistPortrait={artistPortrait} busy={busy} onSave={saveGlobals} onRefresh={refresh} />
+          ) : null}
+
+          {tab === 'contact' ? <ContactBookingTab globals={globals} busy={busy} onSave={saveGlobals} /> : null}
+
+          {tab === 'testimonials' ? (
+            <TestimonialsEditor
+              items={testimonials}
+              busy={busy}
+              onCreate={() =>
+                run(
+                  () =>
+                    createTestimonial({
+                      quote: 'New quote…',
+                      author_name: 'Client',
+                      published: false,
+                    }).then(() => undefined),
+                  'Testimonial added.',
+                )
+              }
+              onSave={async (id, data) => {
+                await updateTestimonial(id, data)
+                await refresh()
+              }}
+              onDelete={async (id) => {
+                const item = testimonials.find((t) => t.id === id)
+                const ok = await confirm({
+                  title: 'Delete this testimonial?',
+                  body: item
+                    ? `"${item.quote.slice(0, 80)}${item.quote.length > 80 ? '…' : ''}" will be removed from the site. This cannot be undone.`
+                    : 'It will be removed from the site. This cannot be undone.',
+                  confirmLabel: 'Delete',
+                  destructive: true,
+                })
+                if (!ok) return
+                await run(() => deleteTestimonial(id).then(() => undefined), 'Testimonial deleted.')
+              }}
+            />
+          ) : null}
+
+          {tab === 'faq' ? (
+            <FaqEditor
+              items={faq}
+              busy={busy}
+              onCreate={() => run(() => createFaq({ question: 'New question?', answer: 'Answer…' }).then(() => undefined), 'FAQ added.')}
+              onSave={async (id, data) => {
+                await updateFaq(id, data)
+                await refresh()
+              }}
+              onDelete={async (id) => {
+                const item = faq.find((f) => f.id === id)
+                const ok = await confirm({
+                  title: 'Delete this FAQ?',
+                  body: item
+                    ? `"${item.question}" will be removed from the site. This cannot be undone.`
+                    : 'It will be removed from the site. This cannot be undone.',
+                  confirmLabel: 'Delete',
+                  destructive: true,
+                })
+                if (!ok) return
+                await run(() => deleteFaq(id).then(() => undefined), 'FAQ deleted.')
+              }}
+            />
+          ) : null}
+
+          <SiteChromePanel
+            globals={globals}
+            seo={seo}
+            busy={busy}
+            open={chromeOpen}
+            onToggle={() => setChromeOpen((o) => !o)}
+            onSave={saveGlobals}
+            onSaveSeo={async (pageKey, title, description) => {
+              await upsertSeo(pageKey, title, description)
+              await refresh()
+            }}
+          />
+
+          {confirmDialog}
+        </StudioWorkSurface>
       ) : null}
 
-      {confirmDialog}
       </StudioScrollPane>
     </StudioHubShell>
   )
@@ -325,16 +347,7 @@ function TestimonialsEditor({
 
   return (
     <section className="space-y-2">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-studio-muted">Published testimonials appear on Home.</p>
-          <p className="mt-1 text-xs text-studio-muted">
-            Promote from delivery feedback →{' '}
-            <Link to="/studio/clients?tab=feedback" className="underline">
-              Clients → Feedback
-            </Link>
-          </p>
-        </div>
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
         <button type="button" className="text-xs text-studio-accent hover:opacity-80 disabled:opacity-50" disabled={busy} onClick={onCreate}>
           Add
         </button>
@@ -484,8 +497,7 @@ function FaqEditor({
 
   return (
     <section className="space-y-2">
-      <div className="mb-3 flex justify-between gap-3">
-        <p className="text-sm text-studio-muted">FAQ items publish on the Contact page only.</p>
+      <div className="mb-3 flex justify-end gap-3">
         <button type="button" className="text-xs text-studio-accent hover:opacity-80 disabled:opacity-50" disabled={busy} onClick={onCreate}>
           Add
         </button>

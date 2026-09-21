@@ -13,7 +13,7 @@ export function StudioNotFoundPage() {
     <StudioHubShell>
       <StudioHubHeader title="Not found" />
       <StudioScrollPane>
-        <p className="text-sm text-studio-muted">That path does not exist. Use the menu to open a hub.</p>
+        <p className="text-sm text-studio-muted">That path does not exist.</p>
       </StudioScrollPane>
     </StudioHubShell>
   )

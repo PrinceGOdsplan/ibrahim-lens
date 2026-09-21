@@ -1,59 +1,36 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Alert, PartialDataNotice } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDateTime, formatNgn } from '@/lib/format'
+import { formatNgn } from '@/lib/format'
 import {
   DESK_PERIODS,
   loadDashboardPulse,
   readDeskPeriod,
   writeDeskPeriod,
   type DashboardPulse,
+  type DeskFunnel,
+  type DeskMicro,
+  type DeskMix,
+  type DeskMoneyPoint,
+  type DeskNeedsYou,
   type DeskPeriod,
+  type DeskShootDay,
 } from '@/lib/dashboard'
-import { useAuth } from '@/lib/auth'
-import { initials, profileLabel, profilePhotoUrl } from '@/lib/studio-identity'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { StudioHubHeader } from '@/components/studio/StudioHubHeader'
 import { StudioHubShell, StudioScrollPane } from '@/components/studio/StudioHubShell'
 import { cn } from '@/lib/utils'
-
-function DeskGreeting() {
-  const { user } = useAuth()
-  const photo = profilePhotoUrl(user, '200x200')
-  const label = profileLabel(user)
-
-  return (
-    <Link
-      to="/studio/settings?tab=profile"
-      className="flex min-w-0 items-center gap-3 text-left hover:text-studio-fg"
-    >
-      {photo ? (
-        <img src={photo} alt="" className="h-12 w-12 shrink-0 rounded-full object-cover" />
-      ) : (
-        <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-studio-panel text-sm font-medium"
-          aria-hidden
-        >
-          {initials(user)}
-        </span>
-      )}
-      <span className="min-w-0 truncate font-display text-2xl leading-tight text-studio-fg">{label}</span>
-    </Link>
-  )
-}
+import { useStudioRecordRefresh } from '@/lib/studio-record-sync'
 
 function DashboardSkeleton() {
   return (
     <StudioHubShell>
       <StudioHubHeader title="Dashboard" />
-      <StudioScrollPane innerClassName="space-y-8">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-12 w-12 shrink-0 rounded-full" />
-          <Skeleton className="h-8 w-40" />
-        </div>
-        <Skeleton className="h-48 w-full" />
-        <Skeleton className="h-36 w-full" />
+      <StudioScrollPane innerClassName="space-y-4">
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-32 w-full" />
       </StudioScrollPane>
     </StudioHubShell>
   )
@@ -83,6 +60,383 @@ function PeriodControl({
         </button>
       ))}
     </div>
+  )
+}
+
+function LineChart({
+  series,
+  max,
+  label,
+  formatValue = (n: number) => String(n),
+}: {
+  series: DeskMoneyPoint[]
+  max: number
+  label: string
+  formatValue?: (n: number) => string
+}) {
+  const [active, setActive] = useState<number | null>(null)
+  const width = 800
+  const height = 160
+  const padX = 16
+  const padTop = 28
+  const padBottom = 28
+  const innerW = width - padX * 2
+  const innerH = height - padTop - padBottom
+  const yMax = Math.max(max, 1)
+  const stepX = series.length > 1 ? innerW / (series.length - 1) : innerW
+
+  const x = useCallback((i: number) => padX + stepX * i, [stepX])
+  const y = useCallback((v: number) => padTop + innerH - (v / yMax) * innerH, [innerH, yMax])
+
+  const d = useMemo(() => {
+    if (!series.length) return ''
+    return series.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.value)}`).join(' ')
+  }, [series, x, y])
+
+  const areaD = useMemo(() => {
+    if (!series.length) return ''
+    const baseline = padTop + innerH
+    const first = `M ${x(0)} ${baseline}`
+    const path = series.map((p, i) => `L ${x(i)} ${y(p.value)}`).join(' ')
+    const last = `L ${x(series.length - 1)} ${baseline} Z`
+    return `${first} ${path} ${last}`
+  }, [series, x, y, innerH])
+
+  if (!series.length) return null
+
+  const tip = active != null ? series[active] : null
+  const gradId = `area-${label.replace(/\s+/g, '-')}`
+
+  return (
+    <div className="relative">
+      <div className="mb-1 flex min-h-5 items-baseline justify-between gap-2 text-xs text-studio-muted">
+        <span className="tabular-nums text-studio-fg">
+          {tip ? `${tip.label}: ${formatValue(tip.value)}` : `Peak ${formatValue(yMax)}`}
+        </span>
+        {series.length > 1 ? (
+          <span>
+            {series[0]?.label} – {series[series.length - 1]?.label}
+          </span>
+        ) : null}
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-auto w-full max-h-36"
+        role="img"
+        aria-label={label}
+        onMouseLeave={() => setActive(null)}
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.14" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaD} fill={`url(#${gradId})`} className="text-studio-fg" />
+        <path
+          d={d}
+          fill="none"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="stroke-studio-fg"
+        />
+        {series.map((p, i) => (
+          <g key={p.iso ?? i}>
+            <circle
+              cx={x(i)}
+              cy={y(p.value)}
+              r={active === i ? 5 : 3.5}
+              className="fill-studio-bg stroke-studio-fg"
+              strokeWidth="2"
+            />
+            {/* Wide hit target for hover / focus */}
+            <circle
+              cx={x(i)}
+              cy={y(p.value)}
+              r="14"
+              fill="transparent"
+              className="cursor-pointer"
+              onMouseEnter={() => setActive(i)}
+              onFocus={() => setActive(i)}
+              tabIndex={0}
+              role="img"
+              aria-label={`${p.label}: ${formatValue(p.value)}`}
+            />
+          </g>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+function MixChart({ mix }: { mix: DeskMix }) {
+  const parts = [
+    { key: 'pending', label: 'Pending', value: mix.pending },
+    { key: 'confirmed', label: 'Confirmed', value: mix.confirmed },
+    { key: 'unpaid', label: 'Unpaid', value: mix.unpaid },
+  ]
+  const total = Math.max(parts.reduce((s, p) => s + p.value, 0), 1)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex h-3 overflow-hidden rounded-full bg-studio-bg">
+        {parts.map((p) =>
+          p.value > 0 ? (
+            <div
+              key={p.key}
+              title={`${p.label}: ${p.value}`}
+              className={cn(
+                'h-full',
+                p.key === 'pending' && 'bg-studio-muted/50',
+                p.key === 'confirmed' && 'bg-studio-fg',
+                p.key === 'unpaid' && 'bg-studio-accent',
+              )}
+              style={{ width: `${(p.value / total) * 100}%` }}
+            />
+          ) : null,
+        )}
+      </div>
+      <ul className="grid grid-cols-3 gap-2 text-sm">
+        {parts.map((p) => (
+          <li key={p.key}>
+            <p className="text-xs text-studio-muted">{p.label}</p>
+            <p className="font-sans font-medium tabular-nums text-studio-fg">{p.value}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function FunnelChart({ funnel }: { funnel: DeskFunnel }) {
+  const steps = [
+    { label: 'Requests', value: funnel.requests },
+    { label: 'Booked', value: funnel.accepted },
+    { label: 'Paid', value: funnel.paid },
+    { label: 'Delivered', value: funnel.delivered },
+    { label: 'Feedback', value: funnel.feedback },
+  ]
+  const max = Math.max(...steps.map((s) => s.value), 1)
+
+  return (
+    <ul className="space-y-2">
+      {steps.map((s) => (
+        <li key={s.label} className="flex items-center gap-2 text-xs">
+          <span className="w-16 shrink-0 text-studio-muted">{s.label}</span>
+          <div className="h-1.5 min-w-0 flex-1 rounded-full bg-studio-bg">
+            <div
+              className="h-full rounded-full bg-studio-fg/80"
+              style={{ width: `${(s.value / max) * 100}%` }}
+            />
+          </div>
+          <span className="w-6 shrink-0 text-right font-sans tabular-nums text-studio-fg">{s.value}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function MicroStats({ micro }: { micro: DeskMicro }) {
+  const items = [
+    {
+      label: 'Collection rate',
+      value: micro.collectionPct == null ? '—' : `${micro.collectionPct}%`,
+    },
+    { label: 'Booked', value: formatNgn(micro.booked) },
+    { label: 'Amount due', value: formatNgn(micro.outstanding), href: '/studio/bookings?view=unpaid' },
+    { label: 'Avg fee', value: micro.avgFee == null ? '—' : formatNgn(micro.avgFee) },
+  ]
+  return (
+    <dl className="grid grid-cols-2 gap-x-3 gap-y-3">
+      {items.map((item) => (
+        <div key={item.label} className="min-w-0">
+          <dt className="text-xs text-studio-muted">{item.label}</dt>
+          <dd className="mt-0.5 font-sans text-sm font-medium tabular-nums text-studio-fg">
+            {item.href ? (
+              <Link to={item.href} className="hover:text-studio-accent">
+                {item.value}
+              </Link>
+            ) : (
+              item.value
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function DeltaBadge({ delta }: { delta: DashboardPulse['collectedDelta'] }) {
+  if (!delta) return null
+  if (delta.pct == null) {
+    return <p className="text-xs text-studio-muted">No prior period</p>
+  }
+  const up = delta.pct >= 0
+  return (
+    <p className={cn('text-xs font-medium tabular-nums', up ? 'text-studio-accent' : 'text-studio-danger')}>
+      {up ? '▲' : '▼'} {Math.abs(delta.pct)}% vs prior
+    </p>
+  )
+}
+
+function TodayStrip({
+  today,
+  attention,
+  outstanding,
+}: {
+  today: DashboardPulse['today']
+  attention: DashboardPulse['attention']
+  outstanding: number
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-studio-border bg-studio-panel px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-studio-muted">Today</p>
+        {today ? (
+          <Link to={today.href} className="mt-0.5 block truncate text-sm font-medium text-studio-fg hover:text-studio-accent">
+            {today.name} · {today.when} · {today.status}
+          </Link>
+        ) : (
+          <p className="mt-0.5 text-sm text-studio-muted">No shoots scheduled</p>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-4 text-xs">
+        {attention.requests > 0 ? (
+          <Link to="/studio/clients?tab=inbox" className="hover:text-studio-accent">
+            <p className="text-studio-muted">Open requests</p>
+            <p className="font-medium tabular-nums text-studio-fg">{attention.requests}</p>
+          </Link>
+        ) : null}
+        {attention.unpaid > 0 ? (
+          <Link to="/studio/bookings?view=unpaid" className="hover:text-studio-accent">
+            <p className="text-studio-muted">Unpaid</p>
+            <p className="font-medium tabular-nums text-studio-fg">{attention.unpaid}</p>
+          </Link>
+        ) : null}
+        <Link to="/studio/bookings?view=unpaid" className="hover:text-studio-accent">
+          <p className="text-studio-muted">Amount due</p>
+          <p className="font-medium tabular-nums text-studio-fg">{formatNgn(outstanding)}</p>
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function NeedsYou({ rows }: { rows: DeskNeedsYou[] }) {
+  return (
+    <section aria-labelledby="desk-needs" className="rounded-xl border border-studio-border bg-studio-panel p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="desk-needs" className="font-sans text-sm font-semibold text-studio-fg">
+          Action required
+        </h2>
+        <Link to="/studio/clients?tab=inbox" className="text-[10px] text-studio-muted hover:text-studio-fg">
+          View inbox
+        </Link>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-studio-muted">Nothing needs attention.</p>
+      ) : (
+        <ul className="divide-y divide-studio-border">
+          {rows.map((row) => (
+            <li key={row.id}>
+              <Link
+                to={row.href}
+                className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 py-2 text-xs hover:text-studio-accent"
+              >
+                <span className="font-medium text-studio-fg">{row.name}</span>
+                <span className="text-[10px] text-studio-muted">{row.when}</span>
+                <span className="w-full text-studio-muted">
+                  {row.reason}
+                  {row.amountNgn != null && row.amountNgn > 0 ? ` · ${formatNgn(row.amountNgn)}` : ''}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function WeekBlotter({ days }: { days: DeskShootDay[] }) {
+  return (
+    <section aria-labelledby="desk-week" className="rounded-xl border border-studio-border bg-studio-panel p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="desk-week" className="font-sans text-sm font-semibold text-studio-fg">
+          Upcoming
+        </h2>
+        <Link to="/studio/bookings?view=upcoming" className="text-[10px] text-studio-muted hover:text-studio-fg">
+          View schedule
+        </Link>
+      </div>
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+        {days.map((d) => (
+          <div
+            key={d.weekday + d.day}
+            className={cn(
+              'min-h-[4.5rem] rounded-md border p-1.5',
+              d.today ? 'border-studio-accent bg-studio-bg' : 'border-studio-border bg-studio-bg/60',
+            )}
+          >
+            <div className="flex items-center justify-between gap-1">
+              <span className={cn('text-[10px] font-medium', d.today ? 'text-studio-accent' : 'text-studio-muted')}>
+                {d.weekday}
+              </span>
+              <span className="text-[10px] text-studio-muted">{d.day}</span>
+            </div>
+            <ul className="mt-1 space-y-1">
+              {d.shoots.map((s) => (
+                <li key={s.id}>
+                  <Link
+                    to={s.href}
+                    className="block text-[10px] leading-tight text-studio-fg hover:text-studio-accent"
+                    title={`${s.name} · ${s.status} · ${s.when}`}
+                  >
+                    <span className="block truncate font-medium">{s.name}</span>
+                    <span className="text-studio-muted">
+                      {s.when}
+                      {s.status ? ` · ${s.status}` : ''}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function LatestFrames({ frames }: { frames: DashboardPulse['frames'] }) {
+  if (!frames.length) return null
+  return (
+    <section aria-labelledby="desk-frames">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="desk-frames" className="font-sans text-sm font-semibold text-studio-fg">
+          Recent photos
+        </h2>
+        <Link to="/studio/gallery" className="text-[10px] text-studio-muted hover:text-studio-fg">
+          View gallery
+        </Link>
+      </div>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
+        {frames.map((f) => (
+          <Link key={f.id} to={f.href} className="group relative aspect-square overflow-hidden rounded-md bg-studio-panel">
+            {f.thumb ? (
+              <img
+                src={f.thumb}
+                alt=""
+                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+              />
+            ) : (
+              <div className="h-full w-full bg-studio-border" />
+            )}
+          </Link>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -119,6 +473,11 @@ export function StudioDashboardPage() {
     return load(period, { soft: true })
   }, [load, period])
 
+  const onAssistantWrite = useCallback(() => {
+    load(period, { soft: true })
+  }, [load, period])
+  useStudioRecordRefresh(['bookings', 'people', 'form_inquiries', 'deliveries'], onAssistantWrite)
+
   function onPeriod(next: DeskPeriod) {
     if (next === period) return
     writeDeskPeriod(next)
@@ -130,7 +489,6 @@ export function StudioDashboardPage() {
       <StudioHubShell>
         <StudioHubHeader title="Dashboard" />
         <StudioScrollPane innerClassName="space-y-8">
-          <DeskGreeting />
           <Alert variant="error" className="mt-2" onRetry={() => load(period)}>
             {error}
           </Alert>
@@ -143,15 +501,8 @@ export function StudioDashboardPage() {
     return <DashboardSkeleton />
   }
 
-  const quiet = data.period !== 'all' && data.counts.every((c) => c.period === 0)
-  const { finance, attention } = data
-  const pulseLinks = [
-    { label: 'To accept', value: attention.requests, href: '/studio/clients?tab=inbox' },
-    { label: 'Messages', value: attention.unreadMessages, href: '/studio/clients?tab=inbox&folder=messages' },
-    { label: 'Feedback', value: attention.unreadFeedback, href: '/studio/clients?tab=feedback' },
-    { label: 'Links ending', value: attention.expiring, href: '/studio/clients?tab=deliveries' },
-    { label: 'Unpaid', value: attention.unpaid, href: '/studio/bookings?view=unpaid' },
-  ]
+  const moneyMax = Math.max(...data.moneySeries.map((p) => p.value), data.finance.collectedPeriod, 1)
+  const volumeMax = Math.max(...data.volumeSeries.map((p) => p.value), 1)
 
   return (
     <StudioHubShell>
@@ -160,9 +511,8 @@ export function StudioDashboardPage() {
         actions={<PeriodControl period={period} onChange={onPeriod} />}
       />
       <StudioScrollPane
-        innerClassName={cn('space-y-8 transition-opacity duration-200', refreshing && 'opacity-70')}
+        innerClassName={cn('space-y-4 transition-opacity duration-200', refreshing && 'opacity-70')}
       >
-        <DeskGreeting />
         <PartialDataNotice missing={data.failed} onRetry={() => load(period, { soft: true })} />
         {error ? (
           <Alert variant="error" onRetry={() => load(period, { soft: true })}>
@@ -170,132 +520,81 @@ export function StudioDashboardPage() {
           </Alert>
         ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.8fr)] lg:items-stretch">
-          <section
-            aria-labelledby="desk-earnings"
-            className="border border-studio-border bg-studio-panel px-5 py-6 sm:px-7 sm:py-7"
-          >
-            <h2 id="desk-earnings" className="sr-only">
-              Earnings
-            </h2>
-            <p className="font-display text-4xl tracking-tight text-studio-fg sm:text-5xl">
-              {formatNgn(finance.totalEarned)}
-            </p>
-            <p className="mt-1 text-sm text-studio-muted">Total earned</p>
+        <TodayStrip today={data.today} attention={data.attention} outstanding={data.micro.outstanding} />
 
-            <div className="mt-8 grid gap-6 sm:grid-cols-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-studio-muted">{data.periodLabel}</p>
-                <dl className="mt-3 space-y-2.5 text-sm">
-                  <div className="flex items-baseline justify-between gap-4">
-                    <dt className="text-studio-muted">Collected</dt>
-                    <dd className="font-medium text-studio-fg">{formatNgn(finance.collectedPeriod)}</dd>
+        <section aria-labelledby="desk-overview" className="space-y-4">
+          <h2 id="desk-overview" className="sr-only">
+            Overview
+          </h2>
+
+          <div className="rounded-xl border border-studio-border bg-studio-panel p-4">
+            <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
+              <div className="flex flex-col justify-between gap-4 lg:w-1/3">
+                <div>
+                  <div className="mb-1 flex items-baseline justify-between gap-2">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-studio-muted">Revenue</p>
+                    <div className="text-right">
+                      <p className="text-xs text-studio-muted">{data.periodLabel}</p>
+                      <DeltaBadge delta={data.collectedDelta} />
+                    </div>
                   </div>
-                  <div className="flex items-baseline justify-between gap-4">
-                    <dt className="text-studio-muted">Booked</dt>
-                    <dd className="font-medium text-studio-fg">{formatNgn(finance.bookedPeriod)}</dd>
-                  </div>
-                </dl>
+                  <p className="font-sans text-4xl font-semibold tracking-tight text-studio-fg">
+                    {formatNgn(data.finance.collectedPeriod)}
+                  </p>
+                </div>
+                <MicroStats micro={data.micro} />
               </div>
-              <div className="sm:border-l sm:border-studio-border sm:pl-6">
-                <p className="text-xs uppercase tracking-[0.14em] text-studio-muted">Now</p>
-                <Link
-                  to="/studio/bookings?view=unpaid"
-                  className="mt-3 flex items-baseline justify-between gap-4 text-sm hover:text-studio-fg"
-                >
-                  <span className="text-studio-muted">Outstanding</span>
-                  <span className="font-medium text-studio-fg">{formatNgn(finance.outstanding)}</span>
-                </Link>
+              <div className="flex flex-col justify-end lg:w-2/3">
+                <LineChart
+                  series={data.moneySeries}
+                  max={moneyMax}
+                  label="Revenue over time"
+                  formatValue={formatNgn}
+                />
               </div>
             </div>
-          </section>
-
-          <section
-            aria-labelledby="desk-pulse"
-            className="flex flex-col border border-studio-border bg-studio-panel px-5 py-6 sm:px-6"
-          >
-            <h2 id="desk-pulse" className="text-xs uppercase tracking-[0.14em] text-studio-muted">
-              Pulse
-            </h2>
-            <ul className="mt-4 flex flex-1 flex-col justify-between gap-1">
-              {pulseLinks.map((row) => (
-                <li key={row.label}>
-                  <Link
-                    to={row.href}
-                    className="flex items-baseline justify-between gap-3 py-1.5 text-sm hover:text-studio-fg"
-                  >
-                    <span className="text-studio-muted">{row.label}</span>
-                    <span className="font-display text-2xl leading-none text-studio-fg">{row.value}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-
-        <section
-          aria-labelledby="desk-today"
-          className="border border-studio-border bg-studio-panel px-5 py-6 sm:px-7 sm:py-7"
-        >
-          <div className="mb-3 flex items-baseline justify-between gap-3">
-            <h2 id="desk-today" className="font-display text-xl text-studio-fg">
-              Coming up
-            </h2>
-            <Link to="/studio/bookings?view=upcoming" className="text-xs text-studio-muted hover:text-studio-fg">
-              Next 7 days
-            </Link>
           </div>
-          {data.today.length ? (
-            <ul className="space-y-1">
-              {data.today.map((shoot) => (
-                <li key={shoot.id}>
-                  <Link
-                    to={shoot.href}
-                    className="flex items-baseline justify-between gap-3 py-2 text-sm hover:text-studio-fg"
-                  >
-                    <span className="min-w-0 truncate">
-                      <span className="font-medium text-studio-fg">{shoot.name}</span>
-                      <span className="text-studio-muted"> · {shoot.status}</span>
-                      {shoot.isToday ? (
-                        <span className="ml-2 text-xs uppercase tracking-[0.12em] text-studio-accent">Today</span>
-                      ) : null}
-                    </span>
-                    <span className="shrink-0 text-studio-muted">{formatDateTime(shoot.when)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-studio-muted">Nothing on the book in the next 7 days.</p>
-          )}
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-studio-border bg-studio-panel p-4">
+              <div className="mb-3 flex items-baseline justify-between gap-3">
+                <h3 className="font-sans text-sm font-semibold text-studio-fg">Bookings</h3>
+                <p className="text-[10px] text-studio-muted">Created in period</p>
+              </div>
+              <LineChart
+                series={data.volumeSeries}
+                max={volumeMax}
+                label="Bookings created over time"
+                formatValue={(n) => String(n)}
+              />
+            </div>
+            <div className="rounded-xl border border-studio-border bg-studio-panel p-4">
+              <h3 className="mb-3 font-sans text-sm font-semibold text-studio-fg">Status</h3>
+              <MixChart mix={data.pipelineMix} />
+            </div>
+            <div className="rounded-xl border border-studio-border bg-studio-panel p-4">
+              <h3 className="mb-3 font-sans text-sm font-semibold text-studio-fg">Conversion</h3>
+              <p className="mb-2 text-[10px] text-studio-muted">{data.periodLabel}</p>
+              <FunnelChart funnel={data.funnel} />
+            </div>
+          </div>
         </section>
 
-        <section aria-labelledby="desk-studio">
-          <div className="mb-4 flex items-baseline justify-between gap-3 border-b border-studio-border pb-3">
-            <h2 id="desk-studio" className="font-display text-xl text-studio-fg">
-              Studio
-            </h2>
-            {data.period !== 'all' ? (
-              <p className="text-xs text-studio-muted">+ in {data.periodLabel.toLowerCase()}</p>
-            ) : null}
+        <section aria-labelledby="desk-activity" className="space-y-4">
+          <h2 id="desk-activity" className="font-sans text-[10px] font-semibold uppercase tracking-[0.14em] text-studio-muted">
+            Activity
+          </h2>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-1">
+              <NeedsYou rows={data.needsYou} />
+            </div>
+            <div className="lg:col-span-2">
+              <WeekBlotter days={data.week} />
+            </div>
           </div>
-          <ul className="grid grid-cols-2 gap-x-8 gap-y-8 sm:grid-cols-3 xl:grid-cols-6">
-            {data.counts.map((c) => (
-              <li key={c.id}>
-                <Link to={c.href} className="group block">
-                  <p className="text-sm text-studio-muted group-hover:text-studio-fg">{c.label}</p>
-                  <p className="mt-1 font-display text-3xl leading-none text-studio-fg">{c.lifetime}</p>
-                  {data.period !== 'all' ? (
-                    <p className="mt-1 text-sm text-studio-muted">+{c.period}</p>
-                  ) : null}
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {quiet ? (
-            <p className="mt-6 text-sm text-studio-muted">Nothing new in this stretch.</p>
-          ) : null}
         </section>
+
+        <LatestFrames frames={data.frames} />
       </StudioScrollPane>
     </StudioHubShell>
   )

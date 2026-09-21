@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Alert } from '@/components/ui/alert'
 import { useConfirm } from '@/components/ui/confirm'
-import { fetchAsBlob, saveBlob, zipStore } from '@/lib/download'
+import { fetchAsBlob, saveBlob, saveImageToDevice, zipStore } from '@/lib/download'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { usePatchSearchParams, useUrlOptionalId, useUrlTab } from '@/lib/useUrlTab'
 import {
@@ -51,6 +52,7 @@ import {
 import { settleAll } from '@/lib/useAsyncData'
 import { attachFocusReveal } from '@/lib/reveal-in-view'
 import { cn } from '@/lib/utils'
+import { useStudioRecordRefresh } from '@/lib/studio-record-sync'
 import { StudioHubShell } from '@/components/studio/StudioHubShell'
 import { StudioImageGallery } from '@/components/studio/StudioImageGallery'
 import { AlbumsView } from '@/components/studio/gallery/AlbumsView'
@@ -87,6 +89,8 @@ export function StudioGalleryPage() {
   const [room] = useUrlTab<GalleryRoom>('room', ROOMS, 'gallery')
   const [portfolioView, setPortfolioView] = useUrlTab<PortfolioView>('view', PORTFOLIO_VIEWS, 'wall')
   const patchParams = usePatchSearchParams()
+  const [searchParams] = useSearchParams()
+  const uploadHandoff = searchParams.get('upload') === '1'
   const [wall, setWall] = useState<MediaRecord[]>([])
   const [wallHasMore, setWallHasMore] = useState(true)
   const [wallLoading, setWallLoading] = useState(false)
@@ -95,11 +99,11 @@ export function StudioGalleryPage() {
   const [works, setWorks] = useState<WorkRecord[]>([])
   const [collectionMedia, setCollectionMedia] = useState<MediaRecord[]>([])
   const [tags, setTags] = useState<TagRecord[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [activeRecord, setActiveRecord] = useState<MediaRecord | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [activeAlbumId, setActiveAlbumId] = useUrlOptionalId('album')
   const [activeWorkId, setActiveWorkId] = useUrlOptionalId('work')
+  const [activeId, setActiveId] = useUrlOptionalId('media')
+  const [activeRecord, setActiveRecord] = useState<MediaRecord | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [albumCreateTick, setAlbumCreateTick] = useState(0)
   const [workCreateTick, setWorkCreateTick] = useState(0)
   const [cols, setCols] = useState(readCols)
@@ -137,6 +141,15 @@ export function StudioGalleryPage() {
 
   roomRef.current = room
   pendingRef.current = pending
+
+  useEffect(() => {
+    if (!uploadHandoff) return
+    const t = window.setTimeout(() => {
+      uploadRef.current?.click()
+      patchParams({ upload: null })
+    }, 120)
+    return () => window.clearTimeout(t)
+  }, [uploadHandoff, patchParams, room])
 
   const refreshLists = useCallback(async () => {
     const loaders: Record<string, () => Promise<unknown>> = { Tags: listTags }
@@ -263,6 +276,12 @@ export function StudioGalleryPage() {
     setLoaded(false)
     void loadWall(true)
   }, [loadWall])
+
+  const onAssistantWrite = useCallback(() => {
+    void refreshLists()
+    void loadWall(true)
+  }, [refreshLists, loadWall])
+  useStudioRecordRefresh(['albums', 'work_projects', 'media', 'website_globals'], onAssistantWrite)
 
   useEffect(() => {
     if (room !== 'albums' && room !== 'work') return
@@ -546,29 +565,47 @@ export function StudioGalleryPage() {
     queueFiles(files)
   }
 
+  async function refreshAfterWrite() {
+    try {
+      await refreshLists()
+    } catch {
+      /* keep the lists already on screen */
+    }
+    if (activeId) {
+      try {
+        const rec = await getMedia(activeId)
+        setActiveRecord(rec)
+        setWall((prev) => prev.map((item) => (item.id === rec.id ? rec : item)))
+        setPortfolioOrder((prev) => prev.map((item) => (item.id === rec.id ? rec : item)))
+      } catch {
+        /* deleted */
+      }
+    }
+    if (roomRef.current === 'portfolio') {
+      try {
+        setPortfolioOrder(await listPortfolioMedia())
+      } catch {
+        /* keep the order already on screen */
+      }
+    }
+  }
+
   async function run(action: () => Promise<void>): Promise<boolean> {
     setError(null)
     try {
       await action()
-      await refreshLists()
-      if (activeId) {
-        try {
-          const rec = await getMedia(activeId)
-          setActiveRecord(rec)
-          setWall((prev) => prev.map((item) => (item.id === rec.id ? rec : item)))
-          setPortfolioOrder((prev) => prev.map((item) => (item.id === rec.id ? rec : item)))
-        } catch {
-          /* deleted */
-        }
-      }
-      if (roomRef.current === 'portfolio') {
-        setPortfolioOrder(await listPortfolioMedia())
-      }
-      return true
     } catch (e) {
       setError(pbErrorMessage(e))
       return false
     }
+    // Reloading tags or the Portfolio list is not the save. A failed reload must
+    // not turn a finished write into "Could not save".
+    try {
+      await refreshAfterWrite()
+    } catch {
+      /* write already landed */
+    }
+    return true
   }
 
   async function handleDelete(id: string, mode?: 'gallery-only' | 'both') {
@@ -705,7 +742,7 @@ export function StudioGalleryPage() {
     try {
       if (items.length === 1) {
         const blob = await fetchAsBlob(mediaOriginalUrl(items[0]))
-        saveBlob(blob, studioDownloadFilename(items[0]))
+        await saveImageToDevice(blob, studioDownloadFilename(items[0]))
         return
       }
       const used = new Set<string>()
@@ -1085,7 +1122,14 @@ export function StudioGalleryPage() {
             setActiveId(null)
             setDeletePrompt(null)
           }}
-          onSaveCaption={(caption) => run(() => updateMediaCaption(active.id, caption).then(() => undefined))}
+          onSaveCaption={(caption) =>
+            run(async () => {
+              const rec = await updateMediaCaption(active.id, caption)
+              setActiveRecord(rec)
+              setWall((prev) => prev.map((item) => (item.id === rec.id ? rec : item)))
+              setPortfolioOrder((prev) => prev.map((item) => (item.id === rec.id ? rec : item)))
+            })
+          }
           onAddToAlbum={(albumId) => void run(() => addMediaToAlbum(albumId, active.id).then(() => undefined))}
           onCreateAlbum={(title) =>
             void run(async () => {

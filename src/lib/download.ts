@@ -102,6 +102,95 @@ export function zipStore(files: { name: string; data: Uint8Array }[]) {
   return new Blob([concat([...locals, centralDir, eocd])], { type: 'application/zip' })
 }
 
+const IMAGE_EXT_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+}
+
+export function isIosDevice() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  if (/iPhone|iPad|iPod/.test(ua)) return true
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+}
+
+function mimeForImage(blob: Blob, filename: string) {
+  if (blob.type.startsWith('image/')) return blob.type
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_EXT_MIME[ext] || ''
+}
+
+export function imageFileFromBlob(blob: Blob, filename: string) {
+  const type = mimeForImage(blob, filename)
+  if (!type) return null
+  return new File([blob], filename, { type })
+}
+
+export function canShareImage(file: File) {
+  if (typeof navigator.share !== 'function') return false
+  try {
+    return typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })
+  } catch {
+    return false
+  }
+}
+
+/** iPhone/iPad can put a photo in the gallery only through the share sheet. */
+export function iosSavesImagesViaShare() {
+  if (!isIosDevice() || typeof navigator.share !== 'function') return false
+  try {
+    const probe = new File([new Blob(['x'], { type: 'image/jpeg' })], 'photo.jpg', { type: 'image/jpeg' })
+    return canShareImage(probe)
+  } catch {
+    return true
+  }
+}
+
+function isUserAbort(err: unknown) {
+  return err instanceof DOMException && err.name === 'AbortError'
+}
+
+function isLostActivation(err: unknown) {
+  return err instanceof DOMException && err.name === 'NotAllowedError'
+}
+
+export type SaveImageResult = { status: 'done' } | { status: 'needs-gesture'; file: File }
+
+export async function shareImageFile(file: File): Promise<'done' | 'needs-gesture'> {
+  try {
+    await navigator.share({ files: [file], title: file.name })
+    return 'done'
+  } catch (err) {
+    if (isUserAbort(err)) return 'done'
+    if (isLostActivation(err)) return 'needs-gesture'
+    throw err
+  }
+}
+
+/**
+ * Save a photograph to the device. On iPhone this opens Share so the photo can
+ * go to Photos; a plain download always lands in Files.
+ */
+export async function saveImageToDevice(blob: Blob, filename: string): Promise<SaveImageResult> {
+  const file = imageFileFromBlob(blob, filename)
+  if (file && isIosDevice() && canShareImage(file)) {
+    try {
+      const status = await shareImageFile(file)
+      if (status === 'needs-gesture') return { status, file }
+      return { status: 'done' }
+    } catch {
+      /* fall through to a Files download */
+    }
+  }
+  saveBlob(blob, filename)
+  return { status: 'done' }
+}
+
 export function saveBlob(blob: Blob, filename: string) {
   const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')

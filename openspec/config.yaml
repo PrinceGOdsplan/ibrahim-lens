@@ -33,7 +33,7 @@ context: |
   Home: slideshow, lanes, Work proof, atmosphere masonry, testimonials, About tease ("Less talk. / More visuals."). Book CTA to `/contact#booking` (no on-page form).
   Contact H1: Let’s shoot. Contact is Write then Book. Work product word (not Projects). Quiet/fewer eyebrows.
   No tilts, slash ornaments, or overlapping stamps. Delivery shares public Soft night language.
-  Studio: defaults light #F7F7F5 / text #1A1A1A; Soft-night–related night opt-in via header toggle. No public watermarks.
+  Studio: product language on the light default — painted rail, breathing page width, one work surface per hub, Figtree hub titles. Appearance toggle lives on the desktop rail and the phone operator strip. Dashboard is Study-first then Radar (earned + volume + mix + funnel + Needs-you). Soft-night–related night remains opt-in. No public watermarks.
   Delivery gallery view may show a quiet corner wordmark; download originals stay unmarked.
   This Design section is editable — revise here when public craft direction changes.
 
@@ -54,9 +54,8 @@ context: |
   Website: Home, About, Services (custom package builder, max entries), Testimonials, FAQ, SEO, Globals.
   Contact editor: page voice, Write blurb, booking questions (max 8), reach-me. No contact-question builder.
   Booking: request-only; any date/time; Home Book CTA to `/contact#booking`; Contact is Write then Book.
-  Dashboard: pulse desk (earnings + period counts; no client diary). Settings: Profile
-    (name/photo), Account (login email/password), tags, brand, notice matrix (optional SMTP).
-    Studio may be installed to the home screen.
+  Dashboard: Dense Overview then Activity — Today strip, Revenue hero with series and vs-prior, Bookings / Status / Conversion, Action required + Upcoming blotter; Recent photos secondary. Everyday labels (not Needs you / Earned / Radar slang). No greeting, no 24h preset, no lifetime count stacks as first glance.
+  Settings: Profile (name/photo), Account (login email/password), tags, brand, notice matrix (optional SMTP). Studio may be installed to the home screen.
 
 rules:
   proposal:

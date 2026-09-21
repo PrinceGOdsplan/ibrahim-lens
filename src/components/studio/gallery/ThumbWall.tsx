@@ -100,24 +100,29 @@ export function ThumbWall({
             <img src={item.preview} alt="" className="h-full w-full object-cover opacity-70" />
             <div className="absolute inset-0 flex items-center justify-center bg-studio-fg/25">
               {item.status === 'error' ? (
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-studio-bg text-studio-fg"
-                    aria-label="Try again"
-                    title={item.reason || 'Could not add this photo'}
-                    onClick={() => onRetry(item.id)}
-                  >
-                    <StudioIcon icon={RefreshCw} />
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-studio-bg text-studio-muted"
-                    aria-label="Remove"
-                    onClick={() => onDismissPending(item.id)}
-                  >
-                    <StudioIcon icon={X} />
-                  </button>
+                <div className="flex flex-col items-center gap-1.5 px-1">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-studio-bg text-studio-fg"
+                      aria-label="Try again"
+                      title={item.reason || 'Could not add this photo'}
+                      onClick={() => onRetry(item.id)}
+                    >
+                      <StudioIcon icon={RefreshCw} />
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-studio-bg text-studio-muted"
+                      aria-label="Remove"
+                      onClick={() => onDismissPending(item.id)}
+                    >
+                      <StudioIcon icon={X} />
+                    </button>
+                  </div>
+                  <p className="max-w-[90%] truncate text-center text-[10px] leading-tight text-studio-bg">
+                    {item.reason || 'Could not add'}
+                  </p>
                 </div>
               ) : (
                 <StudioIcon icon={Loader2} className="h-5 w-5 animate-spin text-studio-bg" />

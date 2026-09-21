@@ -592,7 +592,7 @@ export async function ensureWebsiteSchema(pb: PocketBase) {
         about_body: '',
         booking_questions: [],
         booking_calendar_enabled: true,
-        booking_help_text: 'Pick any preferred date and time — this is a request, not a confirmed booking.',
+        booking_help_text: '',
       })
       console.log('Seeded website_globals site row')
     } catch {
@@ -1111,6 +1111,86 @@ export async function ensureStudioOpsSchema(pb: PocketBase) {
       })
       console.log('Created collection: push_subscriptions')
     }
+  }
+
+  let assistant = await getCollection(pb, 'assistant_thread')
+  if (!assistant) {
+    assistant = await pb.collections.create({
+      name: 'assistant_thread',
+      type: 'base',
+      listRule: AUTHED,
+      viewRule: AUTHED,
+      createRule: AUTHED,
+      updateRule: AUTHED,
+      deleteRule: AUTHED,
+      fields: [
+        { name: 'key', type: 'text', required: true, min: 1, max: 40 },
+        { name: 'messages', type: 'json' },
+        { name: 'model_messages', type: 'json' },
+        { name: 'summary', type: 'text', max: 8000 },
+        { name: 'in_flight', type: 'bool' },
+        { name: 'in_flight_at', type: 'date' },
+        { name: 'credit_warned_at', type: 'date' },
+        { name: 'credit_empty', type: 'bool' },
+        { name: 'picker_token', type: 'text', max: 80 },
+        { name: 'flight_token', type: 'text', max: 80 },
+        { name: 'meta', type: 'json' },
+        { name: 'memory', type: 'text', max: 8000 },
+        { name: 'assistant_name', type: 'text', max: 64 },
+        {
+          name: 'assistant_avatar',
+          type: 'file',
+          maxSelect: 1,
+          maxSize: 5_000_000,
+          mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+          thumbs: ['200x200'],
+        },
+        { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
+        { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
+      ],
+      indexes: ['CREATE UNIQUE INDEX idx_assistant_thread_key ON assistant_thread (key)'],
+    })
+    console.log('Created collection: assistant_thread')
+  } else {
+    await ensureFields(pb, assistant, [
+      { name: 'messages', type: 'json' },
+      { name: 'model_messages', type: 'json' },
+      { name: 'summary', type: 'text', max: 8000 },
+      { name: 'in_flight', type: 'bool' },
+      { name: 'in_flight_at', type: 'date' },
+      { name: 'credit_warned_at', type: 'date' },
+      { name: 'credit_empty', type: 'bool' },
+      { name: 'picker_token', type: 'text', max: 80 },
+      { name: 'flight_token', type: 'text', max: 80 },
+      { name: 'meta', type: 'json' },
+      { name: 'memory', type: 'text', max: 8000 },
+      { name: 'assistant_name', type: 'text', max: 64 },
+      {
+        name: 'assistant_avatar',
+        type: 'file',
+        maxSelect: 1,
+        maxSize: 5_000_000,
+        mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        thumbs: ['200x200'],
+      },
+    ])
+  }
+
+  const assistantRow = await pb.collection('assistant_thread').getList(1, 1, {
+    filter: 'key="studio"',
+  })
+  if (!assistantRow.items[0]) {
+    await pb.collection('assistant_thread').create({
+      key: 'studio',
+      messages: [],
+      model_messages: [],
+      summary: '',
+      in_flight: false,
+      credit_empty: false,
+      picker_token: '',
+      meta: [],
+    })
+    console.log('Seeded assistant_thread singleton')
   }
 
   console.log('Studio ops schema ready.')

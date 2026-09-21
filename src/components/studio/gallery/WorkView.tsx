@@ -246,7 +246,6 @@ function WorkDetails({
               if (slug && slug !== work.slug) onUpdate(work.id, { slug })
             }}
           />
-          <p className="mt-1 text-xs text-studio-muted">The short name in the website link. It updates when you change the name.</p>
         </div>
         <div>
           <Label htmlFor={`${fieldId}-desc`} className="text-xs text-studio-muted">

@@ -180,22 +180,65 @@ function endpointAudience(endpoint) {
   return cut === -1 ? u : u.slice(0, cut)
 }
 
-function sendWebPush(endpoint, subject, _notice) {
+function encryptWebPush(userPublic, userAuth, plaintext) {
+  if (!userPublic || userPublic.length !== 65 || userPublic[0] !== 4) {
+    throw new Error("Invalid push p256dh key.")
+  }
+  if (!userAuth || userAuth.length < 16) throw new Error("Invalid push auth secret.")
+  const d = randomScalar()
+  const localPt = pointMul(d, [P256_GX, P256_GY])
+  if (!localPt) throw new Error("Web Push ECDH failed.")
+  const localPub = [0x04].concat(intToBytes(localPt[0], 32), intToBytes(localPt[1], 32))
+  const sharedPt = pointMul(d, [bytesToInt(userPublic.slice(1, 33)), bytesToInt(userPublic.slice(33, 65))])
+  if (!sharedPt) throw new Error("Web Push ECDH shared failed.")
+  const shared = intToBytes(sharedPt[0], 32)
+  let saltHex = $security.sha256($security.randomString(48) + String(Date.now()))
+  try {
+    saltHex = $security.randomStringWithAlphabet(32, "0123456789abcdef")
+  } catch {
+    // sha256 fallback
+  }
+  const salt = hexToBytes(saltHex).slice(0, 16)
+  const info = utf8Bytes("WebPush: info").concat([0], userPublic, localPub)
+  const ikm = eceHkdf(userAuth, shared, info, 32)
+  const cek = eceHkdf(salt, ikm, utf8Bytes("Content-Encoding: aes128gcm").concat([0]), 16)
+  const nonce = eceHkdf(salt, ikm, utf8Bytes("Content-Encoding: nonce").concat([0]), 12)
+  const encrypted = eceAesGcmEncrypt(cek, nonce, plaintext.concat([2]))
+  return salt.concat([0, 0, 16, 0, 65], localPub, encrypted)
+}
+
+function sendWebPush(endpoint, subject, notice, p256dh, auth) {
   const pub = vapidPublicKey()
   if (!pub || !endpoint) return false
   const jwt = createVapidJwt(endpointAudience(endpoint), subject)
-  // Empty-body VAPID tickle (pending payload fetched by the SW). Content-Length: 0
-  // helps some gateways that drop a body-less POST; Urgency high helps iOS wake.
+  const headers = {
+    Authorization: "vapid t=" + jwt + ", k=" + pub,
+    TTL: "86400",
+    Urgency: "high",
+    "Content-Type": "application/octet-stream",
+  }
+  let body = ""
+  const pubKey = p256dh ? b64urlToBytes(String(p256dh)) : []
+  const authKey = auth ? b64urlToBytes(String(auth)) : []
+  if (notice && pubKey.length === 65 && authKey.length >= 16) {
+    const payload =
+      typeof notice === "string"
+        ? notice
+        : JSON.stringify({
+            title: notice.title || "Ibrahim Lens Studio",
+            body: notice.body || "New Studio notice",
+            url: notice.url || "/studio",
+          })
+    body = eceBytesToSendBody(encryptWebPush(pubKey, authKey, utf8Bytes(payload)))
+    headers["Content-Encoding"] = "aes128gcm"
+  } else {
+    headers["Content-Length"] = "0"
+  }
   const res = $http.send({
     url: endpoint,
     method: "POST",
-    headers: {
-      Authorization: "vapid t=" + jwt + ", k=" + pub,
-      TTL: "86400",
-      Urgency: "high",
-      "Content-Length": "0",
-      "Content-Type": "application/octet-stream",
-    },
+    headers: headers,
+    body: body,
     timeout: 20,
   })
   if (res.statusCode >= 400) {

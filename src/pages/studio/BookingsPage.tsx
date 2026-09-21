@@ -7,7 +7,7 @@ import { BookingQuestionFields } from '@/components/studio/BookingQuestionFields
 import { RevealOnOpen } from '@/components/studio/RevealOnOpen'
 import { StudioFullscreenModal } from '@/components/studio/StudioFullscreenModal'
 import { StudioHubHeader } from '@/components/studio/StudioHubHeader'
-import { StudioHubShell, StudioScrollPane } from '@/components/studio/StudioHubShell'
+import { StudioHubShell, StudioScrollPane, StudioWorkSurface } from '@/components/studio/StudioHubShell'
 import { StudioTextIconButton } from '@/components/studio/StudioIconButton'
 import { StudioTabs } from '@/components/studio/StudioTabs'
 import { Alert, PartialDataNotice } from '@/components/ui/alert'
@@ -48,6 +48,7 @@ import {
 } from '@/lib/bookings'
 import { personReferences, removePerson } from '@/lib/clients'
 import { formatDateTime } from '@/lib/format'
+import { useStudioRecordRefresh } from '@/lib/studio-record-sync'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { settleAll } from '@/lib/useAsyncData'
 import { cn } from '@/lib/utils'
@@ -363,6 +364,18 @@ export function StudioBookingsPage() {
     return load()
   }, [load])
 
+  const onAssistantWrite = useCallback(
+    (change: { collection: string; id: string }) => {
+      void refresh().then(() => {
+        if (change.collection === 'bookings' && change.id === bookingParam) {
+          setMessage('This booking changed.')
+        }
+      })
+    },
+    [refresh, bookingParam],
+  )
+  useStudioRecordRefresh(['bookings', 'people'], onAssistantWrite)
+
   useEffect(() => {
     if (personParam && newParam === '1') {
       setShowCreate(true)
@@ -380,15 +393,20 @@ export function StudioBookingsPage() {
     setMessage(null)
     try {
       await action()
-      await refresh()
-      if (ok) setMessage(ok)
-      return true
     } catch (e) {
       setError(pbErrorMessage(e))
+      setBusyScope(null)
       return false
+    }
+    try {
+      await refresh()
+      if (ok) setMessage(ok)
+    } catch {
+      if (ok) setMessage(ok)
     } finally {
       setBusyScope(null)
     }
+    return true
   }
 
   useEffect(() => {
@@ -462,58 +480,60 @@ export function StudioBookingsPage() {
       {!loaded ? <BookingsSkeleton /> : null}
 
       {loaded ? (
-        <BookingsManager
-          bookings={accepted}
-          people={people}
-          busyScope={busyScope}
-          paidTotal={fin.paidPeriod}
-          outstanding={fin.outstanding}
-          view={view}
-          showCreate={showCreate}
-          onShowCreate={setShowCreate}
-          initialBookingId={bookingParam}
-          initialPersonId={personParam}
-          onViewChange={onViewChange}
-          onCreate={async (input) => {
-            let createdId: string | null = null
-            const ok = await run(async () => {
-              const row = await createBooking({ ...input, status: 'pending', source: 'manual' })
-              createdId = row.id
-            }, 'Booking created.')
-            return ok ? createdId : null
-          }}
-          onUpdate={(id, patch) => run(() => updateBooking(id, patch).then(() => undefined), 'Saved.', id)}
-          onRemove={async (booking) => {
-            const name = booking.expand?.person?.name?.trim() || 'this client'
-            const ok = await confirm({
-              title: `Remove ${name}'s booking?`,
-              body: 'The booking and its history will be removed and cannot be recovered.',
-              confirmLabel: 'Remove booking',
-              destructive: true,
-            })
-            if (!ok) return false
-            const personId = booking.person
-            const removed = await run(() => removeBooking(booking.id), 'Booking removed.', booking.id)
-            if (!removed) return false
-            const refs = await personReferences(personId)
-            if (refs.bookings === 0 && refs.deliveries === 0) {
-              const also = await confirm({
-                title: `Remove ${name} from the directory?`,
-                body: 'They have no other bookings or deliveries. Keep them if you still want the name or phone.',
-                confirmLabel: 'Remove person',
-                cancelLabel: 'Keep person',
+        <StudioWorkSurface>
+          <BookingsManager
+            bookings={accepted}
+            people={people}
+            busyScope={busyScope}
+            paidTotal={fin.paidPeriod}
+            outstanding={fin.outstanding}
+            view={view}
+            showCreate={showCreate}
+            onShowCreate={setShowCreate}
+            initialBookingId={bookingParam}
+            initialPersonId={personParam}
+            onViewChange={onViewChange}
+            onCreate={async (input) => {
+              let createdId: string | null = null
+              const ok = await run(async () => {
+                const row = await createBooking({ ...input, status: 'pending', source: 'manual' })
+                createdId = row.id
+              }, 'Booking created.')
+              return ok ? createdId : null
+            }}
+            onUpdate={(id, patch) => run(() => updateBooking(id, patch).then(() => undefined), 'Saved.', id)}
+            onRemove={async (booking) => {
+              const name = booking.expand?.person?.name?.trim() || 'this client'
+              const ok = await confirm({
+                title: `Remove ${name}'s booking?`,
+                body: 'The booking and its history will be removed and cannot be recovered.',
+                confirmLabel: 'Remove booking',
                 destructive: true,
               })
-              if (also) {
-                await run(() => removePerson(personId), `${name} removed from the directory.`)
+              if (!ok) return false
+              const personId = booking.person
+              const removed = await run(() => removeBooking(booking.id), 'Booking removed.', booking.id)
+              if (!removed) return false
+              const refs = await personReferences(personId)
+              if (refs.bookings === 0 && refs.deliveries === 0) {
+                const also = await confirm({
+                  title: `Remove ${name} from the directory?`,
+                  body: 'They have no other bookings or deliveries. Keep them if you still want the name or phone.',
+                  confirmLabel: 'Remove person',
+                  cancelLabel: 'Keep person',
+                  destructive: true,
+                })
+                if (also) {
+                  await run(() => removePerson(personId), `${name} removed from the directory.`)
+                }
               }
-            }
-            return true
-          }}
-        />
+              return true
+            }}
+          />
+          {confirmDialog}
+        </StudioWorkSurface>
       ) : null}
 
-      {confirmDialog}
       </StudioScrollPane>
     </StudioHubShell>
   )
@@ -849,7 +869,7 @@ function BookingCard({
         </div>
       ) : null}
       <div>
-        <h2 className="font-display text-xl">{booking.expand?.person?.name ?? 'Client'}</h2>
+        <h2 className="font-sans text-xl font-semibold">{booking.expand?.person?.name ?? 'Client'}</h2>
         <p className="text-studio-muted">{booking.expand?.person?.phone_e164}</p>
         <p className="mt-2">{formatPreferredAt(booking.preferred_at)}</p>
         <p className="mt-1 text-studio-muted">
@@ -966,6 +986,13 @@ function BookingEditor({
   const [preferred, setPreferred] = useState(booking.preferred_at ?? '')
   const fieldId = useId()
 
+  useEffect(() => {
+    setFee(String(booking.fee_ngn ?? 0))
+    setPaid(String(booking.amount_paid_ngn ?? 0))
+    setNotes(booking.studio_notes ?? '')
+    setPreferred(booking.preferred_at ?? '')
+  }, [booking.id, booking.fee_ngn, booking.amount_paid_ngn, booking.studio_notes, booking.preferred_at])
+
   return (
     <div
       className={cn(
@@ -975,7 +1002,7 @@ function BookingEditor({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="font-display text-xl">{booking.expand?.person?.name ?? 'Client'}</h2>
+          <h2 className="font-sans text-xl font-semibold">{booking.expand?.person?.name ?? 'Client'}</h2>
           <p className="text-studio-muted">{booking.expand?.person?.phone_e164}</p>
         </div>
         <div className="flex items-center gap-2">

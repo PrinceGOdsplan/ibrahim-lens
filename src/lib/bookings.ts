@@ -472,36 +472,34 @@ export async function submitPublicBooking(input: {
 }
 
 export function financeSummary(bookings: BookingRecord[]) {
-  const open = bookings.filter((b) => b.status === 'confirmed' || b.status === 'completed')
   let paidPeriod = 0
   let outstanding = 0
   for (const b of bookings) {
     paidPeriod += Number(b.amount_paid_ngn) || 0
-  }
-  for (const b of open) {
+    // Money still owed on hub bookings (pending, confirmed, completed) — not inbox requests.
+    if (b.status === 'needs_contact') continue
     outstanding += outstandingNgn(b)
   }
   return { paidPeriod, outstanding, formatNgn }
 }
 
-export type DeskPeriod = '24h' | '7d' | '30d' | 'all'
+export type DeskPeriod = '7d' | '30d' | 'all'
 
 export const DESK_PERIODS: { id: DeskPeriod; label: string; short: string }[] = [
-  { id: '24h', label: 'Last 24 hours', short: '24h' },
-  { id: '7d', label: 'Last 7 days', short: '7d' },
-  { id: '30d', label: 'Last 30 days', short: '30d' },
-  { id: 'all', label: 'All time', short: 'All' },
+  { id: '7d', label: 'Last 7 days', short: '7 days' },
+  { id: '30d', label: 'Last 30 days', short: '30 days' },
+  { id: 'all', label: 'All time', short: 'All time' },
 ]
 
 export function parseDeskPeriod(raw: string | null | undefined): DeskPeriod {
-  if (raw === '24h' || raw === '7d' || raw === '30d' || raw === 'all') return raw
+  if (raw === '24h') return '7d' // 24h was retired; treat as 7d
+  if (raw === '7d' || raw === '30d' || raw === 'all') return raw
   return '7d'
 }
 
 export function periodWindowStart(period: DeskPeriod, now = Date.now()): Date | null {
   if (period === 'all') return null
-  const ms =
-    period === '24h' ? 24 * 3600 * 1000 : period === '7d' ? 7 * 24 * 3600 * 1000 : 30 * 24 * 3600 * 1000
+  const ms = period === '7d' ? 7 * 24 * 3600 * 1000 : 30 * 24 * 3600 * 1000
   return new Date(now - ms)
 }
 
@@ -581,6 +579,226 @@ export async function listMoneyChangedEvents() {
   } catch {
     return [] as BookingEvent[]
   }
+}
+
+/** Lagos calendar yyyy-mm-dd for “today”. */
+export function lagosYmd(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Lagos',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+export type MoneyWindow = {
+  label: string
+  /** Desk preset when applicable. */
+  period?: DeskPeriod
+  from: Date | null
+  to: Date | null
+}
+
+function monthLabel(year: number, month: number) {
+  const d = new Date(Date.UTC(year, month - 1, 1))
+  return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(d)
+}
+
+function calendarMonthWindow(year: number, month: number): MoneyWindow {
+  const from = new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00+01:00`)
+  const nextY = month === 12 ? year + 1 : year
+  const nextM = month === 12 ? 1 : month + 1
+  const to = new Date(`${nextY}-${String(nextM).padStart(2, '0')}-01T00:00:00+01:00`)
+  return { label: monthLabel(year, month), from, to }
+}
+
+/**
+ * Resolve assistant money / schedule period phrases (Lagos).
+ * Supports: 7d | 30d | all | yesterday | today | this_week | last_week |
+ * this_month | last_month | YYYY-MM | month names (august, august_2025)
+ */
+export function resolveMoneyWindow(raw: string | null | undefined, now = new Date()): MoneyWindow {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+  if (!s || s === 'all' || s === 'lifetime' || s === 'total' || s === 'ever') {
+    return { label: 'All time', period: 'all', from: null, to: null }
+  }
+  if (s === '7d' || s === 'last_7_days') {
+    const to = now
+    const from = periodWindowStart('7d', now.getTime())!
+    return { label: 'Last 7 days', period: '7d', from, to }
+  }
+  if (s === '30d' || s === 'last_30_days' || s === 'last_thirty_days') {
+    const to = now
+    const from = periodWindowStart('30d', now.getTime())!
+    return { label: 'Last 30 days', period: '30d', from, to }
+  }
+
+  const ymd = lagosYmd(now)
+  const [y, m] = ymd.split('-').map(Number)
+
+  if (s === 'today') {
+    const from = new Date(`${ymd}T00:00:00+01:00`)
+    const to = new Date(from.getTime() + 24 * 60 * 60 * 1000)
+    return { label: 'Today', from, to }
+  }
+  if (s === 'yesterday') {
+    const to = new Date(`${ymd}T00:00:00+01:00`)
+    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
+    return { label: 'Yesterday', from, to }
+  }
+  if (s === 'this_week' || s === 'week') {
+    const todayStart = new Date(`${ymd}T00:00:00+01:00`)
+    const lagosDow = (() => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Africa/Lagos',
+        weekday: 'short',
+      }).formatToParts(now)
+      const w = parts.find((p) => p.type === 'weekday')?.value
+      const map: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 }
+      return map[w || 'Mon'] ?? 1
+    })()
+    const daysFromMon = lagosDow === 0 ? 6 : lagosDow - 1
+    const from = new Date(todayStart.getTime() - daysFromMon * 24 * 60 * 60 * 1000)
+    const to = new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000)
+    return { label: 'This week', from, to }
+  }
+  if (s === 'last_week') {
+    const thisWeek = resolveMoneyWindow('this_week', now)
+    const from = new Date((thisWeek.from as Date).getTime() - 7 * 24 * 60 * 60 * 1000)
+    const to = thisWeek.from as Date
+    return { label: 'Last week', from, to }
+  }
+
+  if (s === 'this_month' || s === 'month' || s === 'current_month') {
+    return calendarMonthWindow(y, m)
+  }
+  if (s === 'last_month' || s === 'previous_month' || s === 'prev_month') {
+    const ly = m === 1 ? y - 1 : y
+    const lm = m === 1 ? 12 : m - 1
+    return calendarMonthWindow(ly, lm)
+  }
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    const [yy, mm] = s.split('-').map(Number)
+    if (yy >= 2000 && mm >= 1 && mm <= 12) return calendarMonthWindow(yy, mm)
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const from = new Date(`${s}T00:00:00+01:00`)
+    const to = new Date(from.getTime() + 24 * 60 * 60 * 1000)
+    return { label: s, from, to }
+  }
+
+  const months: Record<string, number> = {
+    january: 1,
+    february: 2,
+    march: 3,
+    april: 4,
+    may: 5,
+    june: 6,
+    july: 7,
+    august: 8,
+    september: 9,
+    october: 10,
+    november: 11,
+    december: 12,
+    jan: 1,
+    feb: 2,
+    mar: 3,
+    apr: 4,
+    jun: 6,
+    jul: 7,
+    aug: 8,
+    sep: 9,
+    sept: 9,
+    oct: 10,
+    nov: 11,
+    dec: 12,
+  }
+  const monthMatch = s.match(
+    /^(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)(?:[_-]?(\d{4}))?$/,
+  )
+  if (monthMatch) {
+    const mm = months[monthMatch[1]]
+    let year = monthMatch[2] ? Number(monthMatch[2]) : y
+    if (!monthMatch[2] && mm > m) year = y - 1
+    return calendarMonthWindow(year, mm)
+  }
+
+  const to = now
+  const from = periodWindowStart('30d', now.getTime())!
+  return { label: 'Last 30 days', period: '30d', from, to }
+}
+
+function inMoneyWindow(iso: string | undefined | null, window: MoneyWindow) {
+  if (!iso) return false
+  if (!window.from && !window.to) return true
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return false
+  if (window.from && t < window.from.getTime()) return false
+  if (window.to && t >= window.to.getTime()) return false
+  return true
+}
+
+/**
+ * Money paid to the photographer in a window = earned.
+ * Unpaid fee balances = uncollected debts (outstanding).
+ */
+export function moneyInWindow(
+  hubBookingsList: BookingRecord[],
+  moneyEvents: BookingEvent[],
+  window: MoneyWindow,
+): { earnedInPeriodNgn: number; bookedFeesInPeriodNgn: number; lifetimeEarnedNgn: number; uncollectedNgn: number } {
+  if (window.period) {
+    const f = deskFinance(hubBookingsList, moneyEvents, window.period)
+    return {
+      earnedInPeriodNgn: f.collectedPeriod,
+      bookedFeesInPeriodNgn: f.bookedPeriod,
+      lifetimeEarnedNgn: f.totalEarned,
+      uncollectedNgn: f.outstanding,
+    }
+  }
+
+  let lifetimeEarnedNgn = 0
+  for (const b of hubBookingsList) lifetimeEarnedNgn += Number(b.amount_paid_ngn) || 0
+  const { outstanding } = financeSummary(hubBookingsList)
+
+  let earnedInPeriodNgn = 0
+  const bookedIds = new Set<string>()
+  let bookedFeesInPeriodNgn = 0
+
+  for (const ev of moneyEvents) {
+    if (ev.type !== 'money_changed') continue
+    if (!inMoneyWindow(ev.created as string | undefined, window)) continue
+    const before = (ev.before ?? {}) as { amount_paid_ngn?: number; fee_ngn?: number }
+    const after = (ev.after ?? {}) as { amount_paid_ngn?: number; fee_ngn?: number }
+    const paidBefore = Number(before.amount_paid_ngn) || 0
+    const paidAfter = Number(after.amount_paid_ngn) || 0
+    earnedInPeriodNgn += Math.max(0, paidAfter - paidBefore)
+    const feeBefore = Number(before.fee_ngn) || 0
+    const feeAfter = Number(after.fee_ngn) || 0
+    if (feeBefore <= 0 && feeAfter > 0 && !bookedIds.has(ev.booking)) {
+      bookedIds.add(ev.booking)
+      bookedFeesInPeriodNgn += feeAfter
+    }
+  }
+
+  for (const b of hubBookingsList) {
+    if (!inMoneyWindow(b.created as string | undefined, window)) continue
+    const fee = Number(b.fee_ngn) || 0
+    if (fee > 0 && !bookedIds.has(b.id)) {
+      bookedIds.add(b.id)
+      bookedFeesInPeriodNgn += fee
+    }
+  }
+
+  return { earnedInPeriodNgn, bookedFeesInPeriodNgn, lifetimeEarnedNgn, uncollectedNgn: outstanding }
+}
+
+/** Same window helper for preferred_at / created schedule filters. */
+export function isoInWindow(iso: string | undefined | null, window: MoneyWindow) {
+  return inMoneyWindow(iso, window)
 }
 
 export function parsePhoneForForm(person?: PersonRecord | null): NgPhone | null {

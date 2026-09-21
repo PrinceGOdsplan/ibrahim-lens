@@ -16,6 +16,9 @@ When a gallery is ready, we may use your name and an email so you can open it an
 ## How it is used
 What you send stays with Ibrahim Lens: to answer you, hold the date, deliver work, and follow up. It is not passed along for advertising.
 
+## Studio Assistant
+If Ibrahim uses Studio Assistant, a name, the last four digits of a phone number, and the text of a booking or a message may be sent to the service that writes the replies.
+
 ## Corrections
 If something we hold is wrong, or you want it gone, write through Contact or WhatsApp. We will correct or remove what we can.`
 

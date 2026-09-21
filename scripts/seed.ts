@@ -33,6 +33,31 @@ function requireEnv(name: string, value: string | undefined): string {
   return value
 }
 
+/** Block .env.example placeholders and other trivially guessable seed passwords. */
+function requireStrongPassword(name: string, password: string): string {
+  const trimmed = password.trim()
+  const blocked = new Set([
+    'change-me-now',
+    'change-me-admin',
+    'password',
+    'password1',
+    'password123',
+    'admin',
+    'admin123',
+    '12345678',
+    'qwerty123',
+  ])
+  if (trimmed.length < 12) {
+    throw new Error(`${name} must be at least 12 characters (got ${trimmed.length}).`)
+  }
+  if (blocked.has(trimmed.toLowerCase())) {
+    throw new Error(
+      `${name} is a known placeholder or weak password. Set a unique value in .env before seeding.`,
+    )
+  }
+  return trimmed
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -165,9 +190,15 @@ async function ensurePhotographer(pb: PocketBase, email: string, password: strin
 
 async function main() {
   const email = requireEnv('SEED_EMAIL', process.env.SEED_EMAIL)
-  const password = requireEnv('SEED_PASSWORD', process.env.SEED_PASSWORD)
+  const password = requireStrongPassword(
+    'SEED_PASSWORD',
+    requireEnv('SEED_PASSWORD', process.env.SEED_PASSWORD),
+  )
   const adminMail = requireEnv('PB_ADMIN_EMAIL', process.env.PB_ADMIN_EMAIL)
-  const adminPass = requireEnv('PB_ADMIN_PASSWORD', process.env.PB_ADMIN_PASSWORD)
+  const adminPass = requireStrongPassword(
+    'PB_ADMIN_PASSWORD',
+    requireEnv('PB_ADMIN_PASSWORD', process.env.PB_ADMIN_PASSWORD),
+  )
 
   const pb = new PocketBase(pbUrl)
   pb.autoCancellation(false)

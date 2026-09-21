@@ -42,3 +42,18 @@ tools/pocketbase/
 *.njsproj
 *.sln
 *.sw?
+
+# Superdesign local state
+.superdesign/tmp/
+.superdesign/resume.json
+
+# Scratch assistant review dumps
+docs/_line*.json
+docs/_review*.txt
+docs/_written_*
+
+
+# Local PocketBase backups — never commit
+pb_data-backup*.zip
+*.zip
+

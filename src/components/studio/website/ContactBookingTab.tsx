@@ -10,6 +10,7 @@ import {
 } from '@/components/studio/StudioSection'
 import {
   MAX_BOOKING_QUESTIONS,
+  bookingHelpText,
   createEmptyField,
   type FormFieldDef,
   type WebsiteGlobals,
@@ -33,7 +34,7 @@ export function ContactBookingTab({ globals, busy, onSave }: Props) {
   const [intro, setIntro] = useState(globals.contact_intro ?? '')
   const [writeBlurb, setWriteBlurb] = useState(globals.write_blurb ?? '')
   const [calendar, setCalendar] = useState(globals.booking_calendar_enabled !== false)
-  const [help, setHelp] = useState(globals.booking_help_text ?? '')
+  const [help, setHelp] = useState(bookingHelpText(globals.booking_help_text))
   const [questions, setQuestions] = useState<FormFieldDef[]>(globals.booking_questions ?? [])
   const [email, setEmail] = useState(globals.contact_email ?? '')
   const [phone, setPhone] = useState(globals.contact_phone ?? '')
@@ -45,7 +46,7 @@ export function ContactBookingTab({ globals, busy, onSave }: Props) {
     setIntro(globals.contact_intro ?? '')
     setWriteBlurb(globals.write_blurb ?? '')
     setCalendar(globals.booking_calendar_enabled !== false)
-    setHelp(globals.booking_help_text ?? '')
+    setHelp(bookingHelpText(globals.booking_help_text))
     setQuestions(globals.booking_questions ?? [])
     setEmail(globals.contact_email ?? '')
     setPhone(globals.contact_phone ?? '')
@@ -62,7 +63,7 @@ export function ContactBookingTab({ globals, busy, onSave }: Props) {
     writeBlurb !== (globals.write_blurb ?? '')
   const bookingDirty =
     calendar !== (globals.booking_calendar_enabled !== false) ||
-    help !== (globals.booking_help_text ?? '') ||
+    help !== bookingHelpText(globals.booking_help_text) ||
     JSON.stringify(questions) !== JSON.stringify(globals.booking_questions ?? [])
   const reachDirty =
     email !== (globals.contact_email ?? '') ||
@@ -72,10 +73,7 @@ export function ContactBookingTab({ globals, busy, onSave }: Props) {
 
   return (
     <section className="space-y-2">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-sm text-studio-muted">
-          What visitors see on Contact — the page words, Write, the booking form, and how they reach you.
-        </p>
+      <div className="mb-3 flex justify-end">
         <OpenPublicPageLink href="/contact" />
       </div>
 
@@ -108,7 +106,6 @@ export function ContactBookingTab({ globals, busy, onSave }: Props) {
               onChange={(e) => setWriteBlurb(e.target.value)}
               placeholder="Name, phone, and a short note."
             />
-            <p className="mt-1 text-xs text-studio-muted">Shown under Write on Contact. Leave empty for the default line.</p>
           </div>
         </div>
         <SectionSaveBar
@@ -124,9 +121,6 @@ export function ContactBookingTab({ globals, busy, onSave }: Props) {
       </StudioSection>
 
       <StudioSection id="booking" title="Booking form" open={openId === 'booking'} onToggle={toggle}>
-        <p className="mb-3 text-xs text-studio-muted">
-          Name + +234 phone are fixed. Extra questions max {MAX_BOOKING_QUESTIONS}.
-        </p>
         <label className="mb-3 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={calendar} disabled={busy} onChange={(e) => setCalendar(e.target.checked)} />
           Enable request calendar
@@ -170,7 +164,6 @@ export function ContactBookingTab({ globals, busy, onSave }: Props) {
       </StudioSection>
 
       <StudioSection id="reach" title="Reach me" open={openId === 'reach'} onToggle={toggle}>
-        <p className="mb-3 text-xs text-studio-muted">Phone drives WhatsApp on the public site when set.</p>
         <div className="space-y-3">
           {(
             [

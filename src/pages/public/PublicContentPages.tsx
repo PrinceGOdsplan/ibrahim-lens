@@ -27,6 +27,7 @@ import {
   parseEyebrows,
   parseLanes,
   getWebsiteGlobals,
+  bookingHelpText,
   listFaq,
   listPublishedTestimonials,
 } from '@/lib/website'
@@ -519,10 +520,9 @@ export function ContactPage() {
           <div className="space-y-4">
             <div className="px-5 sm:px-10 md:px-12">
               <h2 className="font-display text-3xl">Book</h2>
-              <p className="street-body mt-3 text-sm">
-                {globals?.booking_help_text ||
-                  'Pick any preferred date and time — this is a request, not a confirmed booking.'}
-              </p>
+              {bookingHelpText(globals?.booking_help_text) ? (
+                <p className="street-body mt-3 text-sm">{bookingHelpText(globals?.booking_help_text)}</p>
+              ) : null}
             </div>
             <BookingSection globals={globals} hideHeading />
           </div>

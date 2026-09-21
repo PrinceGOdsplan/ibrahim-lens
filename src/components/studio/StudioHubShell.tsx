@@ -22,7 +22,23 @@ export function StudioScrollPane({
 
   return (
     <div ref={scrollerRef} className={cn('h-full min-h-0 overflow-auto overscroll-contain', className)}>
-      <div className={cn('px-3 py-3 sm:px-4 sm:py-4 md:px-8', innerClassName)}>{children}</div>
+      <div
+        className={cn(
+          'mx-auto max-w-6xl px-3 py-3 sm:px-4 sm:py-4 md:px-8',
+          innerClassName,
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** One rounded work surface for hubs whose body should read as a single pane. */
+export function StudioWorkSurface({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn('rounded-xl border border-studio-border bg-studio-panel p-3 sm:p-5', className)}>
+      {children}
     </div>
   )
 }

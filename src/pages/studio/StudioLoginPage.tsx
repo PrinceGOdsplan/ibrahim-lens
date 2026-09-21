@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -79,11 +79,6 @@ export function StudioLoginPage() {
           <div>
             <p className="font-display text-2xl leading-none tracking-tight text-studio-fg">{STUDIO_PRODUCT_NAME}</p>
             <h1 className="mt-3 text-sm font-medium text-studio-muted">{resetMode ? 'Reset password' : 'Sign in'}</h1>
-            <p className="mt-2 text-sm text-studio-muted">
-              {resetMode
-                ? 'We email a reset link to your Studio login address.'
-                : 'Photographer access only.'}
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -132,12 +127,6 @@ export function StudioLoginPage() {
           >
             {resetMode ? 'Back to sign in' : 'Forgot password?'}
           </button>
-
-          {resetMode ? (
-            <p className="text-center text-xs text-studio-muted">
-              Or open <Link to="/studio/login" className="underline">sign in</Link> after you reset.
-            </p>
-          ) : null}
         </form>
       </div>
     </SurfaceProvider>

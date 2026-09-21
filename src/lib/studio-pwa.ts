@@ -5,7 +5,7 @@ import {
   studioThemeColor,
   type StudioAppearance,
 } from '@/lib/studio-appearance'
-import { STUDIO_PRODUCT_NAME, STUDIO_SHORT_NAME } from '@/lib/studio-brand'
+import { STUDIO_SHORT_NAME } from '@/lib/studio-brand'
 import { pb } from '@/lib/pocketbase'
 import { isStudioStandalone } from '@/lib/notice-channels'
 
@@ -45,6 +45,17 @@ const STUDIO_SPLASHES: { href: string; media: string }[] = [
 
 export function studioVapidPublicKey() {
   return String(import.meta.env.VITE_VAPID_PUBLIC_KEY || '').trim()
+}
+
+export async function loadStudioVapidPublicKey() {
+  try {
+    const res = await pb.send<{ publicKey?: string }>('/api/ibrahim/vapid-public', { method: 'GET' })
+    const live = String(res.publicKey || '').trim()
+    if (live) return live
+  } catch {
+    /* use the build-time key if PocketBase is unreachable */
+  }
+  return studioVapidPublicKey()
 }
 
 export function studioVapidConfigured() {
@@ -176,9 +187,9 @@ export async function unregisterStudioWorker() {
 export function studioInstallCopy() {
   const ua = navigator.userAgent
   if (/iPhone|iPad|iPod/.test(ua)) {
-    return `On iPhone: open ${STUDIO_PRODUCT_NAME} in Safari, then Share → Add to Home Screen. Phone notices work after that.`
+    return 'In Safari, tap Share, then Add to Home Screen.'
   }
-  return `Add ${STUDIO_PRODUCT_NAME} to this phone’s home screen to turn on phone notices.`
+  return 'Add to Home Screen from the browser menu.'
 }
 
 export function studioLightVibrate(pattern: number | number[] = 12) {
@@ -202,16 +213,25 @@ export async function setStudioAppBadge(count: number) {
   }
 }
 
+function sameApplicationServerKey(sub: PushSubscription, keyBytes: Uint8Array) {
+  const raw = sub.options?.applicationServerKey
+  if (!raw) return true
+  const got = new Uint8Array(raw instanceof ArrayBuffer ? raw : raw)
+  if (got.length !== keyBytes.length) return false
+  for (let i = 0; i < got.length; i++) if (got[i] !== keyBytes[i]) return false
+  return true
+}
+
 export async function subscribeStudioPush() {
   if (!isStudioStandalone()) {
-    throw new Error('Add Studio to the home screen first, then allow phone notices from this installed app.')
+    throw new Error('Add to Home Screen first.')
   }
-  const key = studioVapidPublicKey()
+  const key = await loadStudioVapidPublicKey()
   if (!key) {
-    throw new Error('Phone notices are not configured on this server (missing VAPID public key).')
+    throw new Error('Phone notices are unavailable.')
   }
   if (!('PushManager' in window)) {
-    throw new Error('This browser does not support phone notices.')
+    throw new Error('Phone notices are unavailable.')
   }
   const userId = pb.authStore.record?.id
   if (!userId) {
@@ -219,14 +239,20 @@ export async function subscribeStudioPush() {
   }
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') {
-    throw new Error('Notification permission was not granted.')
+    throw new Error('Phone notices were not allowed.')
   }
+  await registerStudioWorker()
   const reg = await navigator.serviceWorker.ready
+  const keyBytes = urlBase64ToUint8Array(key)
   let sub = await reg.pushManager.getSubscription()
+  if (sub && !sameApplicationServerKey(sub, keyBytes)) {
+    await sub.unsubscribe()
+    sub = null
+  }
   if (!sub) {
     sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(key),
+      applicationServerKey: keyBytes,
     })
   }
   const json = sub.toJSON()

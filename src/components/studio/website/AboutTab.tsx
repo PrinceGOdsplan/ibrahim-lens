@@ -66,8 +66,7 @@ export function AboutTab({ globals, artistPortrait, busy, onSave, onRefresh }: P
 
   return (
     <section className="space-y-2">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-sm text-studio-muted">Your About page text and photo.</p>
+      <div className="mb-3 flex justify-end">
         <OpenPublicPageLink href="/about" label="Open About" />
       </div>
 
@@ -105,9 +104,6 @@ export function AboutTab({ globals, artistPortrait, busy, onSave, onRefresh }: P
       </StudioSection>
 
       <StudioSection id="photo" title="About photo" open={openId === 'photo'} onToggle={toggle}>
-        <p className="mb-3 text-xs text-studio-muted">
-          Shown on About and the Home About tease. Upload here — this photo is not added to Gallery.
-        </p>
         <input
           ref={fileRef}
           type="file"

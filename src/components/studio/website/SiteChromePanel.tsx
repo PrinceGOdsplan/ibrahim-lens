@@ -187,9 +187,6 @@ function EyebrowsSection({
 
   return (
     <StudioSection id="eyebrows" title="Section labels" open={open} onToggle={onToggle}>
-      <p className="mb-3 text-xs text-studio-muted">
-        Small labels above section headlines on the site. Leave a field empty to keep the default.
-      </p>
       <div className="grid gap-3 sm:grid-cols-2">
         {Object.keys(DEFAULT_EYEBROWS).map((key) => (
           <div key={key}>
@@ -200,8 +197,8 @@ function EyebrowsSection({
               id={`eyebrow-${key}`}
               value={draft[key] ?? ''}
               onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+              placeholder={DEFAULT_EYEBROWS[key]}
             />
-            <p className="mt-1 text-xs text-studio-muted">If empty, visitors see “{DEFAULT_EYEBROWS[key]}”.</p>
           </div>
         ))}
       </div>
@@ -253,7 +250,7 @@ function ShareImageCoach() {
   if (!missing) return null
 
   return (
-    <Coach>Shared links will not show a photograph yet.</Coach>
+    <Coach>No share image yet.</Coach>
   )
 }
 
@@ -310,8 +307,8 @@ function SeoSection({
 
   return (
     <StudioSection id="seo" title="SEO" open={open} onToggle={onToggle}>
-      {!homeSeo?.description?.trim() ? <Coach>Home has no short description for Google yet.</Coach> : null}
-      {!contactSeo?.description?.trim() ? <Coach>Contact has no short description for Google yet.</Coach> : null}
+      {!homeSeo?.description?.trim() ? <Coach>Home description is empty.</Coach> : null}
+      {!contactSeo?.description?.trim() ? <Coach>Contact description is empty.</Coach> : null}
       <ShareImageCoach />
       <ul className="mt-2 divide-y divide-studio-border/50">
         {SEO_PAGES.map((page) => {
@@ -403,9 +400,7 @@ function LegalSection({
 
   return (
     <StudioSection id="legal" title="Privacy and terms" open={open} onToggle={onToggle}>
-      <p className="mb-3 text-xs text-studio-muted">
-        Leave empty to keep the site default. Put a blank line between paragraphs. Start a line with ## to make a heading.
-      </p>
+      <p className="mb-3 text-xs text-studio-muted">Blank line for a paragraph. ## for a heading.</p>
       <div className="space-y-3">
         <div>
           <Label htmlFor="privacy-body" className="text-xs text-studio-muted">

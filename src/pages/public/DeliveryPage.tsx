@@ -13,7 +13,7 @@ import {
   listDeliveryImages,
   submitDeliveryFeedback,
 } from '@/lib/clients'
-import { fetchAsBlob, photographDownloadName, saveBlob, zipStore } from '@/lib/download'
+import { fetchAsBlob, iosSavesImagesViaShare, photographDownloadName, saveBlob, saveImageToDevice, shareImageFile, zipStore } from '@/lib/download'
 import { mediaOriginalUrl, mediaThumbUrl, slugify, type MediaRecord } from '@/lib/library'
 import { DeliveryWordmark } from '@/components/public/DeliveryWordmark'
 
@@ -31,7 +31,9 @@ export function DeliveryPage() {
   const [sendError, setSendError] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [busyDownload, setBusyDownload] = useState<string | null>(null)
+  const [pendingShare, setPendingShare] = useState<{ id: string; file: File } | null>(null)
   const feedbackId = useId()
+  const saveToPhotos = iosSavesImagesViaShare()
 
   useEffect(() => {
     if (!token) return
@@ -84,8 +86,14 @@ export function DeliveryPage() {
     setDownloadError(null)
     setBusyDownload(item.id)
     try {
+      if (pendingShare?.id === item.id) {
+        const status = await shareImageFile(pendingShare.file)
+        if (status === 'done') setPendingShare(null)
+        return
+      }
       const blob = await fetchAsBlob(mediaOriginalUrl(item, delivery.token, { download: true }))
-      saveBlob(blob, photographDownloadName(item.file, index))
+      const result = await saveImageToDevice(blob, photographDownloadName(item.file, index))
+      setPendingShare(result.status === 'needs-gesture' ? { id: item.id, file: result.file } : null)
     } catch {
       setDownloadError('Could not download that photograph. Please try again.')
     } finally {
@@ -204,7 +212,13 @@ export function DeliveryPage() {
               disabled={busyDownload !== null}
               className="shrink-0 self-start text-sm text-public-accent hover:text-public-fg disabled:opacity-50"
             >
-              {busyDownload === 'all' ? 'Preparing…' : images.length === 1 ? 'Download photograph' : 'Download all'}
+              {busyDownload === 'all'
+                ? 'Preparing…'
+                : images.length === 1
+                  ? saveToPhotos
+                    ? 'Save photograph'
+                    : 'Download photograph'
+                  : 'Download all'}
             </button>
           ) : null}
         </div>
@@ -242,7 +256,11 @@ export function DeliveryPage() {
                   disabled={busyDownload !== null}
                   className="text-public-accent hover:text-public-fg disabled:opacity-50"
                 >
-                  {busyDownload === item.id ? 'Downloading…' : 'Download original'}
+                  {busyDownload === item.id
+                    ? 'Preparing…'
+                    : pendingShare?.id === item.id || saveToPhotos
+                      ? 'Save to Photos'
+                      : 'Download original'}
                 </button>
               </figcaption>
             </figure>
