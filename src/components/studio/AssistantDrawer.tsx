@@ -434,7 +434,7 @@ export function AssistantChat() {
       <button
         type="button"
         className={cn(
-          'fixed z-50 inline-flex items-center rounded-full bg-studio-fg text-studio-bg shadow-md transition-opacity hover:opacity-90 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-3 md:bottom-6 md:right-6',
+          'fixed z-50 inline-flex items-center rounded-full bg-studio-fg text-studio-bg shadow-md transition-opacity hover:opacity-90 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-3 md:bottom-6 md:right-6',
           open ? 'pointer-events-none h-12 opacity-0' : 'min-h-12 gap-2.5 py-2 pl-2 pr-4',
         )}
         aria-label={displayName}

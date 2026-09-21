@@ -346,7 +346,7 @@ export function StudioLayout() {
   return (
     <SurfaceProvider surface="studio">
       <div
-        className="studio-shell flex h-dvh min-h-0 flex-col overflow-hidden overscroll-none bg-studio-bg text-studio-fg [touch-action:manipulation]"
+        className="studio-shell flex h-full min-h-0 flex-col overflow-hidden overscroll-none bg-studio-bg text-studio-fg [touch-action:manipulation]"
         data-studio-appearance={appearance}
       >
         {/* Phone operator strip: only on small viewports, does not name the hub. */}
