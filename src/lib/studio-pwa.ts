@@ -170,7 +170,9 @@ export async function registerStudioWorker() {
   const pbUrl = pb.baseUrl.replace(/\/$/, '')
   const reg = await navigator.serviceWorker.register(`/studio/sw.js?pb=${encodeURIComponent(pbUrl)}`, {
     scope: '/studio/',
+    updateViaCache: 'none',
   })
+  void reg.update()
   return reg
 }
 

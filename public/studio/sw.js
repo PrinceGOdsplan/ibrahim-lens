@@ -1,6 +1,6 @@
-/* Studio PWA worker. Registered only from /studio. App-shell cache v2. */
+/* Studio PWA worker. Registered only from /studio. App-shell cache v4. */
 
-const SHELL_CACHE = 'ibrahim-studio-shell-v3'
+const SHELL_CACHE = 'ibrahim-studio-shell-v4'
 const PUSH_CACHE = 'ibrahim-studio-push'
 
 const PRECACHE = [
@@ -28,8 +28,10 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
+        // Drop every prior shell cache so a phone that pinned an old hashed
+        // bundle (or index-shell) cannot keep serving a broken viewport frame.
         keys
-          .filter((k) => k.startsWith('ibrahim-studio-shell-') && k !== SHELL_CACHE)
+          .filter((k) => k.startsWith('ibrahim-studio-shell-'))
           .map((k) => caches.delete(k)),
       ),
     ).then(() => self.clients.claim()),

@@ -103,11 +103,15 @@ export function StudioLayout() {
     root.classList.add('studio-lock-scroll')
 
     function syncStudioFrame() {
-      const vv = window.visualViewport
-      const height = Math.round(vv?.height ?? window.innerHeight)
-      const top = Math.round(vv?.offsetTop ?? 0)
-      root.style.setProperty('--studio-frame-height', `${height}px`)
-      root.style.setProperty('--studio-frame-top', `${top}px`)
+      // iOS standalone with status-bar-style "default" often reports a tall
+      // visualViewport (full screen) while innerHeight is the usable frame.
+      // Taking the minimum keeps the hub bar on-screen; -webkit-fill-available
+      // on html/body covers the residual gap when the shell was short.
+      const vv = window.visualViewport?.height
+      const candidates = [window.innerHeight, document.documentElement.clientHeight]
+      if (typeof vv === 'number' && vv > 0) candidates.push(vv)
+      const h = Math.round(Math.min(...candidates.filter((n) => Number.isFinite(n) && n > 0)))
+      if (h > 0) root.style.setProperty('--studio-frame-height', `${h}px`)
     }
 
     syncStudioFrame()
@@ -120,7 +124,6 @@ export function StudioLayout() {
     return () => {
       root.classList.remove('studio-lock-scroll')
       root.style.removeProperty('--studio-frame-height')
-      root.style.removeProperty('--studio-frame-top')
       vv?.removeEventListener('resize', syncStudioFrame)
       vv?.removeEventListener('scroll', syncStudioFrame)
       window.removeEventListener('resize', syncStudioFrame)
