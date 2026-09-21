@@ -1,0 +1,406 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Figtree:wght@400;500;600&family=Sora:wght@400;500;600&family=Syne:wght@600;700;800&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  /* Soft night public tokens; Studio stays calm light tool */
+  --color-public-bg: #100e0b;
+  --color-public-raised: #16120e;
+  --color-public-deep: #070605;
+  --color-public-fg: #f4efe6;
+  --color-public-body: #c8bfb2;
+  --color-public-muted: #8a837a;
+  --color-public-accent: #c9922e;
+  /* Warm red that clears 4.5:1 on the warm-dark grounds; Tailwind reds do not */
+  --color-public-danger: #e8705c;
+  --color-studio-bg: #f7f7f5;
+  --color-studio-fg: #1a1a1a;
+  --color-studio-muted: #6b6b66;
+  --color-studio-border: #e4e4df;
+  --color-studio-panel: #ffffff;
+  --color-studio-danger: #b3261e;
+  /* Deep brass that clears 4.5:1 on the Studio ground — not the public accent. */
+  --color-studio-accent: #7a5210;
+  /* Sheet/dialog dim — always a dark wash, not foreground (fg is ivory on night). */
+  --color-studio-scrim: rgb(26 26 26 / 0.25);
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-sans: 'Figtree', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Studio textareas inherit body weight; kill UA chrome that reads as a bold box */
+  textarea {
+    font: inherit;
+    font-weight: 400;
+    color: inherit;
+    appearance: none;
+    border-radius: 0;
+  }
+}
+
+/* Studio — calm tool type. Declared on a shell class rather than left to
+   the `@theme` defaults so a Studio dialog portalled to `body` can carry it
+   explicitly, the same way a public overlay carries `.public-shell`. */
+.studio-shell {
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-sans: 'Figtree', ui-sans-serif, system-ui, sans-serif;
+  --color-studio-scrim: rgb(26 26 26 / 0.25);
+  font-family: var(--font-sans);
+  color-scheme: light;
+}
+
+/* Soft-night–related night desk. Attribute on the shell and/or <html>
+   (portalled `.studio-shell` dialogs inherit via the html selector). */
+.studio-shell[data-studio-appearance='night'],
+html[data-studio-appearance='night'] .studio-shell {
+  --color-studio-bg: #100e0b;
+  --color-studio-panel: #16120e;
+  --color-studio-fg: #f4efe6;
+  --color-studio-muted: #8a837a;
+  --color-studio-border: #2e2924;
+  --color-studio-accent: #c9922e;
+  --color-studio-danger: #e8705c;
+  --color-studio-scrim: rgb(7 6 5 / 0.62);
+  color-scheme: dark;
+}
+
+/* StudioLayout mounts this on <html>. Public pages must keep document scroll. */
+html.studio-lock-scroll,
+html.studio-lock-scroll body,
+html.studio-lock-scroll #root {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Public — Soft night type (Syne + Sora; no tilts / slashes) */
+.public-shell {
+  --font-display: 'Syne', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Sora', ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
+  color: var(--color-public-fg);
+  /* Keeps UA chrome (date pickers, selects, checkboxes, scrollbars) legible on the dark ground */
+  color-scheme: dark;
+}
+
+.public-shell .font-display {
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.public-shell .street-eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-public-muted);
+}
+
+.public-shell .street-body {
+  color: var(--color-public-body);
+}
+
+.public-shell .street-quote-text {
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.public-shell .street-cta-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  background: var(--color-public-accent);
+  color: #140f0a;
+  padding: 0.7rem 1.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: opacity 0.2s ease;
+}
+
+.public-shell .street-cta-primary:hover {
+  opacity: 0.88;
+}
+
+.public-shell .street-cta-primary:focus-visible {
+  outline: 2px solid var(--color-public-fg);
+  outline-offset: 3px;
+}
+
+.public-shell .tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.public-shell a.tap-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+
+/* Expand the hit area around a small visible mark without changing its size. */
+.public-shell .hit-expand {
+  position: relative;
+}
+
+.public-shell .hit-expand::after {
+  content: '';
+  position: absolute;
+  inset: 50%;
+  min-height: 44px;
+  min-width: 44px;
+  transform: translate(-50%, -50%);
+}
+
+.studio-numeral {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+@layer utilities {
+  .atelier-hero-scale {
+    animation: atelier-hero-scale 14s ease-out forwards;
+  }
+
+  .atelier-brand-settle {
+    animation: street-brand-snap 0.55s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  }
+
+  .atelier-fade-up {
+    animation: street-cut-in 0.45s ease-out both;
+  }
+
+  .atelier-fade-up-delay {
+    animation: street-cut-in 0.45s ease-out 0.12s both;
+  }
+
+  .street-grain {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    opacity: 0.055;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation: street-grain-settle 1s ease-out both;
+  }
+
+  .street-section {
+    isolation: isolate;
+  }
+
+  .street-atmosphere,
+  .street-quotes {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+  }
+
+  .street-atmosphere-panel,
+  .street-quotes {
+    background:
+      radial-gradient(ellipse 80% 60% at 85% 20%, color-mix(in oklab, var(--color-public-accent) 7%, transparent), transparent 55%),
+      radial-gradient(ellipse 70% 50% at 10% 90%, color-mix(in oklab, var(--color-public-fg) 5%, transparent), transparent 50%),
+      var(--color-public-deep);
+    overflow-x: clip;
+  }
+
+  .street-atmosphere-glow,
+  .street-quotes-glow {
+    position: absolute;
+    top: 10%;
+    right: 5%;
+    width: min(22rem, 45vw);
+    height: min(22rem, 45vw);
+    max-width: 100%;
+    border-radius: 50%;
+    background: color-mix(in oklab, var(--color-public-accent) 6%, transparent);
+    filter: blur(80px);
+  }
+
+  .street-raised {
+    background: var(--color-public-raised);
+  }
+
+  .street-atmosphere--glow-start .street-atmosphere-glow {
+    right: auto;
+    left: 5%;
+    top: 20%;
+  }
+
+  .street-atmosphere--glow-center .street-atmosphere-glow {
+    right: 50%;
+    top: 30%;
+    transform: translateX(50%);
+  }
+
+  .street-atmosphere-grid,
+  .street-quotes-grid {
+    position: absolute;
+    inset: 0;
+    opacity: 0.22;
+    background-image:
+      linear-gradient(color-mix(in oklab, var(--color-public-fg) 14%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in oklab, var(--color-public-fg) 14%, transparent) 1px, transparent 1px);
+    background-size: 4.5rem 4.5rem;
+    mask-image: radial-gradient(ellipse 70% 65% at 70% 40%, black 10%, transparent 75%);
+  }
+
+  .street-atmosphere--glow-start .street-atmosphere-grid {
+    mask-image: radial-gradient(ellipse 70% 65% at 30% 45%, black 10%, transparent 75%);
+  }
+
+  .street-atmosphere--glow-center .street-atmosphere-grid {
+    mask-image: radial-gradient(ellipse 75% 70% at 50% 50%, black 15%, transparent 80%);
+  }
+
+  .street-uneven-pad {
+    padding-left: 1.25rem;
+    padding-right: 2.75rem;
+  }
+
+  @media (min-width: 768px) {
+    .street-uneven-pad {
+      padding-left: 1.5rem;
+      padding-right: 5rem;
+    }
+  }
+
+  .street-footer::before {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 1px;
+    background: color-mix(in oklab, var(--color-public-fg) 12%, transparent);
+  }
+
+  .public-masonry {
+    columns: 1;
+    column-gap: 0.55rem;
+  }
+
+  .public-masonry-item {
+    break-inside: avoid;
+    margin-bottom: 0.55rem;
+  }
+
+  .public-masonry-item:nth-child(3n) {
+    margin-bottom: 1.35rem;
+  }
+
+  .public-masonry-item:nth-child(5n) {
+    margin-bottom: 0.35rem;
+  }
+
+  @media (min-width: 640px) {
+    .public-masonry {
+      columns: 2;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .public-masonry {
+      columns: 3;
+      column-gap: 0.85rem;
+    }
+
+    .public-masonry-item {
+      margin-bottom: 0.85rem;
+    }
+
+    .public-masonry-item:nth-child(3n) {
+      margin-bottom: 1.75rem;
+    }
+  }
+}
+
+@keyframes atelier-hero-scale {
+  from {
+    transform: scale(1.08);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes street-brand-snap {
+  from {
+    opacity: 0;
+    transform: translateX(-0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes street-cut-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes street-grain-settle {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.055;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .atelier-hero-scale,
+  .atelier-brand-settle,
+  .atelier-fade-up,
+  .atelier-fade-up-delay,
+  .street-grain {
+    animation: none !important;
+  }
+
+  .street-grain {
+    opacity: 0.04;
+  }
+}

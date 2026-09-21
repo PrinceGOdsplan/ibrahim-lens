@@ -1,0 +1,30 @@
+services:
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:0.25.8
+    container_name: ibrahim-lens-pocketbase
+    restart: unless-stopped
+    ports:
+      # Host:container — PocketBase Admin UI + API
+      - "8090:8090"
+    volumes:
+      # Persistent SQLite DB + uploaded files (backup this directory)
+      - ./pb_data:/pb_data
+      - ./deploy/pb_hooks:/pb_hooks
+    environment:
+      SITE_URL: ${VITE_SITE_URL:-http://127.0.0.1:5173}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_FROM: ${SMTP_FROM:-hello@ibrahimlens.com.ng}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Ibrahim Lens}
+    # Image ENTRYPOINT already runs: pocketbase serve --http=0.0.0.0:8090 --dir=/pb_data
+    # Do not pass another "serve" here — it becomes a fake HTTPS domain.
+    # VPS later: same service; add Caddy + domain TLS in front of web + this API
+
+  # Optional production web image (local Vite uses host npm run dev against PocketBase)
+  # web:
+  #   build: .
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     - pocketbase

@@ -1,0 +1,71 @@
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	# Vite emits content-hashed filenames under /assets, so they can be cached
+	# permanently. index.html must not be, or deploys never reach visitors.
+	@assets path /assets/*
+	handle @assets {
+		header Cache-Control "public, max-age=31536000, immutable"
+		root * /srv
+		file_server
+	}
+
+	# Public photo files (originals + thumbs). Delivery gallery copies are deleted
+	# on revoke/expiry so those URLs 404 at origin; Cloudflare may still hold a HIT
+	# until its cache TTL.
+	@pbfiles path /api/files/*
+	handle @pbfiles {
+		header Cache-Control "public, max-age=2592000"
+		reverse_proxy pocketbase:8090
+	}
+
+	# PocketBase Admin — extra shared secret in front of the Admin password.
+	# Empty ADMIN_BASIC_HASH means no valid user (fail closed). Local Compose
+	# talks to PocketBase on :8090 and does not use this handle.
+	@admin path /_/*
+	handle @admin {
+		header Cache-Control "private, no-store"
+		basicauth {
+			{$ADMIN_BASIC_USER} {$ADMIN_BASIC_HASH}
+		}
+		reverse_proxy pocketbase:8090
+	}
+
+	# PocketBase REST — never cache.
+	@pocketbase path /api/*
+	handle @pocketbase {
+		header Cache-Control "private, no-store"
+		reverse_proxy pocketbase:8090
+	}
+
+	# Studio service worker — never cache; scope is /studio/ by path.
+	@sw path /studio/sw.js
+	handle @sw {
+		header Cache-Control "private, no-store"
+		header Service-Worker-Allowed "/studio/"
+		root * /srv
+		file_server
+	}
+
+	# Client-side routing: unknown paths must return the SPA, not a 404.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+		header X-Frame-Options SAMEORIGIN
+		header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; frame-ancestors 'self'"
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Uncomment once the www record exists in DNS.
+# www.{$SITE_DOMAIN} {
+# 	redir https://{$SITE_DOMAIN}{uri} permanent
+# }

@@ -1,0 +1,51 @@
+name: ibrahim-lens
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:0.25.8
+    container_name: ibrahim-lens-pocketbase
+    restart: unless-stopped
+    # No host port: PocketBase is only reachable through Caddy.
+    expose:
+      - "8090"
+    volumes:
+      - ./pb_data:/pb_data
+      - ./pb_hooks:/pb_hooks
+    environment:
+      SITE_URL: ${SITE_URL:-https://ibrahimlens.com.ng}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_FROM: ${SMTP_FROM:-hello@ibrahimlens.com.ng}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Ibrahim Lens}
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ibrahim-lens-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?set SITE_DOMAIN in deploy/.env}
+      ADMIN_BASIC_USER: ${ADMIN_BASIC_USER:-}
+      ADMIN_BASIC_HASH: ${ADMIN_BASIC_HASH:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - pocketbase
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:

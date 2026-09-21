@@ -1,0 +1,36 @@
+{
+  "name": "Ibrahimlens studio",
+  "short_name": "Ibrahimlens",
+  "description": "Ibrahimlens studio",
+  "start_url": "/studio",
+  "scope": "/studio/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F7F7F5",
+  "theme_color": "#F7F7F5",
+  "icons": [
+    { "src": "/studio/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/studio/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/studio/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Home",
+      "url": "/studio",
+      "icons": [{ "src": "/studio/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Gallery",
+      "short_name": "Gallery",
+      "url": "/studio/gallery",
+      "icons": [{ "src": "/studio/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Bookings",
+      "short_name": "Bookings",
+      "url": "/studio/bookings",
+      "icons": [{ "src": "/studio/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

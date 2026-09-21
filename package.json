@@ -1,0 +1,41 @@
+{
+  "name": "ibrahim-lens",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "seed": "tsx scripts/seed.ts",
+    "seed:ig": "tsx scripts/fetch-ig-seed.ts",
+    "seed:volume": "tsx scripts/seed-volume.ts",
+    "seed:volume:clear": "tsx scripts/clear-volume.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "1.28.0",
+    "pocketbase": "^0.27.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "dotenv": "^17.4.2",
+    "oxlint": "^1.75.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.5",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0"
+  }
+}

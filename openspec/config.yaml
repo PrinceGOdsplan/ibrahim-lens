@@ -1,0 +1,70 @@
+schema: spec-driven
+
+context: |
+  Product: Ibrahim Lens — single-photographer webapp (brand: Ibrahim Lens).
+  Greenfield build inspired by an older app; NOT a fork.
+
+  ## Stack (locked — local now, same on VPS later)
+  - Frontend: React + Vite + TypeScript + Tailwind CSS
+  - Studio UI: shadcn/ui; public site uses custom artistic gallery craft (not dashboard look)
+  - Backend: PocketBase (Auth email/password, SQLite DB, file storage for images)
+  - Deploy shape: Docker Compose (web + PocketBase; Caddy for HTTPS on VPS)
+  - Local now: same Compose/services as production (Vite dev against local PocketBase OK)
+  - VPS later: same Compose; domain/env/volumes only — do not swap core stack
+  - First Studio user: seed script (not manual mystery setup)
+  - Avoid Supabase/SaaS free-tier backends as core dependencies
+  - Email: optional PocketBase SMTP (treat as production when set). Photographer mail
+    follows Settings for inbound only (booking, Write message, feedback — defaults on).
+    No upload / Portfolio email. Client mail: gallery-ready and expiry-if-not-downloaded
+    when an address was snapshotted on the Delivery (no “you downloaded” mail).
+    Studio PWA + Web Push for Mobile after Add to Home Screen. No idle gate. No 2FA.
+  - Ops: document Compose ports; backup PocketBase `pb_data` (DB + delivery_files copies);
+    pb_hooks mounted into PocketBase; ping `/api/health`
+
+  ## Design (public — Soft night; editable)
+  Public vibe: Soft night — warm-dark photo-first, Street Plain voice, still bookable.
+  Ground: warm near-black (#100e0b) with raised (#16120e) and deep (#070605) surfaces.
+  Text: warm ivory; body vs muted split. Accent: soft brass (#c9922e) sparingly — solid Book CTAs only; not every eyebrow.
+  Fonts (public): Syne display + Sora body. Studio keeps Cormorant/Figtree.
+  Identity: booked for Portraits + Fashion; Lifestyle = celeb/culture. Shoots across Nigeria.
+  Brand "Ibrahim Lens" hero-level; hero CTAs Book (solid brass) + Portfolio; short rotating captions.
+  WhatsApp: secondary — under booking form and footer when phone is set; also in mobile menu beside Instagram when set. Never in desktop header, hero CTA, or green FAB.
+  Nav: About · Portfolio · Work · Contact (no Home link; brand → Home); Book on every public route (including Home film header) → `/contact#booking`; Home header film → solid on scroll.
+  Home: slideshow, lanes, Work proof, atmosphere masonry, testimonials, About tease ("Less talk. / More visuals."). Book CTA to `/contact#booking` (no on-page form).
+  Contact H1: Let’s shoot. Contact is Write then Book. Work product word (not Projects). Quiet/fewer eyebrows.
+  No tilts, slash ornaments, or overlapping stamps. Delivery shares public Soft night language.
+  Studio: defaults light #F7F7F5 / text #1A1A1A; Soft-night–related night opt-in via header toggle. No public watermarks.
+  Delivery gallery view may show a quiet corner wordmark; download originals stay unmarked.
+  This Design section is editable — revise here when public craft direction changes.
+
+  ## Product IA
+  Studio: /studio. Hubs: Dashboard, Library, Website, Clients, Settings.
+  Public nav: About, Portfolio, Work, Contact (Home via brand). Also legal: Privacy, Terms (and cookies notice if needed).
+  Deliveries at /g/:token (not in nav).
+
+  Library: upload finished images; storage-only OK; max upload size enforced.
+  Memberships: Portfolio, Album(s), Work. Tags: simple list under Settings → Portfolio tags.
+  Work: private by default; opt-in Show on website.
+  Home featured: Portfolio images only. No public watermark overlays.
+
+  Deliveries: from images / album(s) / Work; require client name; optional email later-friendly field OK.
+  Client: view, download originals, feedback, countdown to expiry.
+  Expiry: 7 days after creation only (no post-download clock). No share password in v1.
+
+  Website: Home, About, Services (custom package builder, max entries), Testimonials, FAQ, SEO, Globals.
+  Contact editor: page voice, Write blurb, booking questions (max 8), reach-me. No contact-question builder.
+  Booking: request-only; any date/time; Home Book CTA to `/contact#booking`; Contact is Write then Book.
+  Dashboard: pulse desk (earnings + period counts; no client diary). Settings: Profile
+    (name/photo), Account (login email/password), tags, brand, notice matrix (optional SMTP).
+    Studio may be installed to the home screen.
+
+rules:
+  proposal:
+    - Always include Non-goals
+    - Use Work not Projects; Deliveries not Shares; /studio not /admin
+  design:
+    - PocketBase + Docker Compose core; local and VPS same stack
+    - 7-day delivery expiry only; thumbnails+originals; no public watermarks; quiet Delivery view mark allowed
+    - Follow current Design section (asymmetric atelier public craft; Studio defaults light, Soft-night–related night opt-in)
+  tasks:
+    - Small verifiable steps; include seed script and pb_data backup docs

@@ -1,0 +1,1 @@
+15 3 * * * root bash /opt/ibrahim-lens/backup.sh >> /var/log/ibrahim-lens-backup.log 2>&1
