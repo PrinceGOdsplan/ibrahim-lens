@@ -1263,7 +1263,8 @@ function toolDefs() {
       type: "function",
       function: {
         name: "create_booking",
-        description: "Create a booking for an existing personId or a new name+phone. Always Confirm. Not the same as Accept (that updates needs_contact to pending).",
+        description:
+          "Create a booking ONLY when the photographer clearly asked to book/create one for a real person (name+phone or existing personId). Never invent name, phone, fee, paid, or date. Never call when they only ask what details you need or how booking works — answer in chat instead. Always Confirm.",
         parameters: {
           type: "object",
           properties: {
@@ -1328,8 +1329,9 @@ function systemPrompt(digest) {
     "DOCTRINE: (1) Call tools for Studio facts — do not refuse list/show/find from memory. " +
     "(2) Never invent records/money/Done; never name tools or raw IDs in chat. " +
     "(3) Confirm only money, deletes, mail, password, decline/cancel, Delivery revoke/restore, people create; safe text and bulk caption renames apply immediately. " +
-    "(4) Invent creative photo names / Website draft copy when asked. " +
-    "(5) After writes, name the field and new value — not only “Done”.\n\n"
+    "(4) Invent creative photo names / Website draft copy when asked — never invent clients, bookings, fees, or phones. " +
+    "(5) After writes, name the field and new value — not only “Done”. " +
+    "(6) If they ask what details you need or how to do something, answer in words — do not create_booking or other writes.\n\n"
   return hard + base + "\n\n# Runtime digest\n\n" + digest
 }
 
@@ -1407,9 +1409,57 @@ function wantsToolDiscovery(text) {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
-  if (!t || isShortAck(t) || isCapabilityQuestion(t)) return false
+  if (!t || isShortAck(t) || isCapabilityQuestion(t) || isInformationalAsk(t)) return false
   return /\b(list|show|find|search|pull|get|how many|what('| i)?s|what are|which|who|when|rename|update|change|set|open|close|send|accept|mark|delete|create|add|remove|need|unpaid|notification|inbox|gallery|album|booking|client|delivery|faq|seo|website|settings|sidebar|night|dark|photo|picture|image|money|earn|owe|week|month|today|tag|caption|featured|portfolio|work|testimonial|mail|email|advice|opinion)\b/.test(
     t,
+  )
+}
+
+/** Questions about process / required fields — answer in words, do not invent writes. */
+function isInformationalAsk(text) {
+  var t = String(text || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+  if (!t) return false
+  if (/what (details|info|information) (do you|would you|should i|are) (need|required|want)/.test(t)) return true
+  if (/what do you need (to|for|before)/.test(t)) return true
+  if (/what (do i|should i) (need|give|provide|tell)/.test(t)) return true
+  if (/how (do i|can i|to|does) (create|make|add|book|set up|use)/.test(t)) return true
+  if (/what (is|are) (required|needed|the requirements)/.test(t)) return true
+  if (/^(can you|do you) (create|make|add) (a )?booking\??$/.test(t)) return true
+  if (/explain how|walk me through|what would you ask/.test(t)) return true
+  return false
+}
+
+function informationalAnswer(text) {
+  var t = String(text || "").toLowerCase()
+  if (/book/.test(t)) {
+    return (
+      "To create a booking I need a client — either someone already in Clients, or a name plus a Nigerian phone (+234). " +
+      "A preferred shoot time helps. Fee and amount paid are optional until you set them. " +
+      "Tell me who and when (and money if you want), and I will prepare Confirm — I will not invent a client."
+    )
+  }
+  return (
+    "Tell me what you want done in ordinary English. I look up Studio records by name. " +
+    "For a new booking I need a real client (name + phone or an existing person) and usually a time — I will not invent one."
+  )
+}
+
+function isInventedWriteBlocked(fn, userText) {
+  if (!isInformationalAsk(userText)) return false
+  return (
+    fn === "create_booking" ||
+    fn === "people_write" ||
+    fn === "delete_record" ||
+    fn === "send_mail" ||
+    fn === "delivery_write" ||
+    fn === "update_booking" ||
+    fn === "website_write" ||
+    fn === "library_write" ||
+    fn === "settings_write" ||
+    fn === "feedback_write"
   )
 }
 
@@ -1981,6 +2031,9 @@ __g.__ilAssistant = {
   plainJsonList: plainJsonList,
   pickModel: pickModel,
   wantsToolDiscovery: wantsToolDiscovery,
+  isInformationalAsk: isInformationalAsk,
+  informationalAnswer: informationalAnswer,
+  isInventedWriteBlocked: isInventedWriteBlocked,
   callOpenRouter: callOpenRouter,
   isCapabilityQuestion: isCapabilityQuestion,
   capabilityAnswer: capabilityAnswer,
@@ -2194,6 +2247,19 @@ routerAdd(
         lib.saveThread(row)
         return e.json(200, { ok: true, text: cap, messages: uiMessages, creditEmpty: false })
       }
+      if (userText && lib.isInformationalAsk && lib.isInformationalAsk(userText)) {
+        var info = lib.informationalAnswer ? lib.informationalAnswer(userText) : "Tell me who and when — I will not invent a booking."
+        uiMessages.push({ role: "assistant", text: info, kind: "reply" })
+        modelMessages.push({ role: "assistant", content: info })
+        row.set("messages", lib.plainJsonList ? lib.plainJsonList(uiMessages) : JSON.parse(JSON.stringify(uiMessages)))
+        row.set(
+          "model_messages",
+          lib.plainJsonList ? lib.plainJsonList(lib.foldModelMessages(modelMessages)) : JSON.parse(JSON.stringify(lib.foldModelMessages(modelMessages))),
+        )
+        lib.setLock(row, false)
+        lib.saveThread(row)
+        return e.json(200, { ok: true, text: info, messages: uiMessages, creditEmpty: false })
+      }
       if (userText && lib.isShortAck && lib.isShortAck(userText)) {
         var ack = lib.shortAckAnswer ? lib.shortAckAnswer() : "Okay."
         uiMessages.push({ role: "assistant", text: ack, kind: "reply" })
@@ -2308,6 +2374,9 @@ routerAdd(
         var call = calls[c]
         var fn = (call.function && call.function.name) || call.name || ""
         var args = lib.parseJson((call.function && call.function.arguments) || call.arguments || "{}", {})
+        if (lib.isInventedWriteBlocked && lib.isInventedWriteBlocked(fn, userText)) {
+          continue
+        }
         var cls = lib.classifyTool(fn, args)
         if (cls.kind === "read") {
           readTools.push({ id: call.id || String(c), name: fn, args: args })
