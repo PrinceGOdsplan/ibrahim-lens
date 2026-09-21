@@ -88,17 +88,18 @@ html[data-studio-appearance='night'] .studio-shell {
 }
 
 /* StudioLayout mounts this on <html>. Public pages must keep document scroll.
-   iOS home-screen PWAs often report a short 100dvh, which leaves a dead gap under
-   the bottom hub bar and makes fixed chrome (Assistant) miss the tab bar. Pin the
-   tree to the visual frame instead of trusting dvh. */
+   iOS home-screen PWAs disagree on 100dvh vs inset:0 (gap under tab bar, or tab bar
+   clipped). StudioLayout sets --studio-frame-height from visualViewport. */
 html.studio-lock-scroll,
 html.studio-lock-scroll body,
 html.studio-lock-scroll #root {
   position: fixed;
-  inset: 0;
+  top: var(--studio-frame-top, 0px);
+  left: 0;
+  right: 0;
   width: 100%;
-  height: 100%;
-  max-height: none;
+  height: var(--studio-frame-height, 100svh);
+  max-height: var(--studio-frame-height, 100svh);
   overflow: hidden;
   overscroll-behavior: none;
 }

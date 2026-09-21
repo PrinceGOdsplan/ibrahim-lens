@@ -101,7 +101,31 @@ export function StudioLayout() {
   useEffect(() => {
     const root = document.documentElement
     root.classList.add('studio-lock-scroll')
-    return () => root.classList.remove('studio-lock-scroll')
+
+    function syncStudioFrame() {
+      const vv = window.visualViewport
+      const height = Math.round(vv?.height ?? window.innerHeight)
+      const top = Math.round(vv?.offsetTop ?? 0)
+      root.style.setProperty('--studio-frame-height', `${height}px`)
+      root.style.setProperty('--studio-frame-top', `${top}px`)
+    }
+
+    syncStudioFrame()
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', syncStudioFrame)
+    vv?.addEventListener('scroll', syncStudioFrame)
+    window.addEventListener('resize', syncStudioFrame)
+    window.addEventListener('orientationchange', syncStudioFrame)
+
+    return () => {
+      root.classList.remove('studio-lock-scroll')
+      root.style.removeProperty('--studio-frame-height')
+      root.style.removeProperty('--studio-frame-top')
+      vv?.removeEventListener('resize', syncStudioFrame)
+      vv?.removeEventListener('scroll', syncStudioFrame)
+      window.removeEventListener('resize', syncStudioFrame)
+      window.removeEventListener('orientationchange', syncStudioFrame)
+    }
   }, [])
 
   useEffect(() => {
@@ -455,7 +479,7 @@ export function StudioLayout() {
         {/* Phone bottom hub bar. */}
         <nav
           aria-label="Studio hubs"
-          className="flex shrink-0 border-t border-studio-border bg-studio-panel pb-[env(safe-area-inset-bottom)] md:hidden"
+          className="flex shrink-0 border-t border-studio-border bg-studio-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
         >
           {hubs.map((hub) => (
             <NavLink
