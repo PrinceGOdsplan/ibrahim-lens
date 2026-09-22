@@ -433,7 +433,7 @@ export function AboutPage() {
             />
           ) : (
             <div className="flex h-full items-end p-8">
-              <p className="font-display text-5xl leading-none text-public-fg/20">IL</p>
+              <p className="font-display text-5xl leading-none text-public-fg/20" aria-hidden="true">IL</p>
             </div>
           )}
         </div>
