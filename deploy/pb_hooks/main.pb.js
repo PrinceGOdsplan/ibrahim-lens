@@ -243,11 +243,14 @@ function notifyPhotographerEvent(event, subject, html, path) {
   }
   if (channelOn(settings, event, "mobile")) {
     try {
-      enqueuePush(
+      const n = enqueuePush(
         subject.replace(" — Ibrahim Lens", ""),
         "Open Studio",
         siteUrl() + (path || "/studio"),
       )
+      if (!n) {
+        recordMailError("Mobile push: no subscribed Studio phone (Allow phone notices on the installed app).")
+      }
     } catch (err) {
       recordMailError(err)
     }
@@ -468,7 +471,14 @@ onRecordAfterCreateSuccess((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   e.next()
-  if (e.auth) return
+  // Guest token path must notify even if a Studio session cookie is present
+  // (photographer testing the Delivery link in the same browser).
+  let guestToken = ""
+  try {
+    const info = e.requestInfo()
+    guestToken = String((info.query && info.query.token) || "")
+  } catch (_) {}
+  if (e.auth && !guestToken) return
   try {
     const origin = siteUrl()
     const name = String(e.record.getString("client_name") || "A client")
@@ -930,6 +940,100 @@ routerAdd(
   },
   $apis.requireAuth(),
 )
+
+function escapeOg(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+/** Crawler-facing HTML for Delivery share links (messengers do not run the SPA). */
+routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
+  const token = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
+  if (!token) throw new NotFoundError("Not found.")
+  let delivery
+  try {
+    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:token}", { token: token })
+  } catch (_) {
+    throw new NotFoundError("Not found.")
+  }
+  if (delivery.getBool("revoked")) throw new NotFoundError("Not found.")
+  const exp = delivery.getDateTime("expires_at")
+  if (exp.time().unixMilli() < Date.now()) throw new NotFoundError("Not found.")
+
+  const origin = siteUrl()
+  const clientName = String(delivery.getString("client_name") || "Client").trim() || "Client"
+  const title = "Gallery for " + clientName
+  const description = "Private photographs from Ibrahim Lens."
+  const pageUrl = origin + "/g/" + token
+  let imageUrl = origin + "/og-default.jpg"
+  try {
+    const files = $app.findRecordsByFilter(
+      "delivery_files",
+      "delivery = {:id}",
+      "created",
+      1,
+      0,
+      { id: delivery.id },
+    )
+    if (files && files.length) {
+      const row = files[0]
+      const stored = String(row.get("file") || "")
+      if (stored) {
+        imageUrl =
+          origin +
+          "/api/ibrahim/delivery-file/" +
+          encodeURIComponent(token) +
+          "/" +
+          encodeURIComponent(row.id) +
+          "/" +
+          encodeURIComponent(stored) +
+          "?thumb=1200x0"
+      }
+    }
+  } catch (_) {}
+
+  const html =
+    "<!doctype html><html lang=\"en\"><head>" +
+    "<meta charset=\"utf-8\"/>" +
+    "<title>" +
+    escapeOg(title) +
+    " · Ibrahim Lens</title>" +
+    "<meta property=\"og:type\" content=\"website\"/>" +
+    "<meta property=\"og:site_name\" content=\"Ibrahim Lens\"/>" +
+    "<meta property=\"og:title\" content=\"" +
+    escapeOg(title) +
+    "\"/>" +
+    "<meta property=\"og:description\" content=\"" +
+    escapeOg(description) +
+    "\"/>" +
+    "<meta property=\"og:url\" content=\"" +
+    escapeOg(pageUrl) +
+    "\"/>" +
+    "<meta property=\"og:image\" content=\"" +
+    escapeOg(imageUrl) +
+    "\"/>" +
+    "<meta name=\"twitter:card\" content=\"summary_large_image\"/>" +
+    "<meta name=\"twitter:title\" content=\"" +
+    escapeOg(title) +
+    "\"/>" +
+    "<meta name=\"twitter:description\" content=\"" +
+    escapeOg(description) +
+    "\"/>" +
+    "<meta name=\"twitter:image\" content=\"" +
+    escapeOg(imageUrl) +
+    "\"/>" +
+    "<link rel=\"canonical\" href=\"" +
+    escapeOg(pageUrl) +
+    "\"/>" +
+    "</head><body><p>" +
+    escapeOg(title) +
+    "</p></body></html>"
+
+  return e.blob(200, "text/html; charset=utf-8", html)
+})
 
 routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
   const token = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")

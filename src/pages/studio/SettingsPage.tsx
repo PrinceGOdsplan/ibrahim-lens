@@ -18,12 +18,14 @@ import { pbErrorMessage } from '@/lib/pb-error'
 import {
   type BrandRecord,
   type TagRecord,
+  brandFaviconUrl,
   brandLogoUrl,
   createTag,
   deleteTag,
   getBrandSettings,
   listTags,
   renameTag,
+  upsertBrandFavicon,
   upsertBrandLogo,
 } from '@/lib/library'
 import {
@@ -335,7 +337,23 @@ export function StudioSettingsPage() {
     }
   }
 
+  async function onFavicon(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setError(null)
+    setMessage(null)
+    try {
+      const updated = await upsertBrandFavicon(file)
+      setBrand(updated)
+      setMessage('Favicon updated. Public pages will use it.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   const logo = brandLogoUrl(brand)
+  const favicon = brandFaviconUrl(brand)
   const photo = profilePhotoUrl(user, '200x200')
   const assistantPhoto = assistantAvatarUrl(assistantRow)
 
@@ -579,17 +597,41 @@ export function StudioSettingsPage() {
         ) : null}
 
         {tab === 'brand' ? (
-          <section className="space-y-4">
-            <div>
-              <h2 className="font-display text-xl">Brand logo</h2>
-              <p className="mt-1 text-sm text-studio-muted">
-                JPEG, PNG, or WebP, max {getMaxUploadMb()}MB.
-              </p>
+          <section className="space-y-8">
+            <div className="space-y-4">
+              <div>
+                <h2 className="font-display text-xl">Brand logo</h2>
+                <p className="mt-1 text-sm text-studio-muted">
+                  JPEG, PNG, or WebP, max {getMaxUploadMb()}MB.
+                </p>
+              </div>
+              {logo ? <img src={logo} alt="Site logo" className="h-16 w-auto object-contain" /> : null}
+              <div>
+                <Label htmlFor="logo-upload">Logo file</Label>
+                <Input id="logo-upload" type="file" accept="image/jpeg,image/png,image/webp" onChange={onLogo} />
+              </div>
             </div>
-            {logo ? <img src={logo} alt="Site logo" className="h-16 w-auto object-contain" /> : null}
-            <div>
-              <Label htmlFor="logo-upload">Logo file</Label>
-              <Input id="logo-upload" type="file" accept="image/jpeg,image/png,image/webp" onChange={onLogo} />
+            <div className="space-y-4 border-t border-studio-border pt-8">
+              <div>
+                <h2 className="font-display text-xl">Favicon</h2>
+                <p className="mt-1 text-sm text-studio-muted">
+                  Browser tab icon. ICO, PNG, JPEG, WebP, or SVG, max {getMaxUploadMb()}MB.
+                </p>
+              </div>
+              {favicon ? (
+                <img src={favicon} alt="Site favicon" className="h-10 w-10 object-contain" />
+              ) : (
+                <p className="text-sm text-studio-muted">Using the default /favicon.svg until you upload one.</p>
+              )}
+              <div>
+                <Label htmlFor="favicon-upload">Favicon file</Label>
+                <Input
+                  id="favicon-upload"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/svg+xml,image/x-icon,.ico"
+                  onChange={onFavicon}
+                />
+              </div>
             </div>
           </section>
         ) : null}
@@ -673,6 +715,12 @@ export function StudioSettingsPage() {
               >
                 Allow phone notices
               </Button>
+            ) : null}
+            {Object.values(channels).some((row) => row.mobile) && !mobileEnabled ? (
+              <Alert variant="error">
+                Mobile is checked, but this browser is not the installed Studio app. Add to Home Screen,
+                open that icon, then tap Allow phone notices — the badge alone is not a tray notification.
+              </Alert>
             ) : null}
             <div className="space-y-3 border-t border-studio-border pt-4">
               <p className="font-medium">Client mail</p>

@@ -20,12 +20,17 @@ export function attachStudioStandaloneViewportGuard() {
   let focusOutTimer: ReturnType<typeof setTimeout> | undefined
   let raf = 0
 
-  function applyVars() {
+  function applyVars(typing: boolean) {
     const vv = window.visualViewport
-    const offsetTop = vv?.offsetTop ?? 0
-    const height = vv?.height ?? window.innerHeight
-    root.style.setProperty('--studio-vv-offset-top', `${offsetTop}px`)
-    root.style.setProperty('--studio-vv-height', `${height}px`)
+    // Idle: stay at layout top. Only chase visualViewport while the keyboard is open —
+    // otherwise nested scroll rubber-bands offsetTop and the hub tabs look like they drag.
+    if (typing && vv) {
+      root.style.setProperty('--studio-vv-offset-top', `${vv.offsetTop}px`)
+      root.style.setProperty('--studio-vv-height', `${vv.height}px`)
+      return
+    }
+    root.style.setProperty('--studio-vv-offset-top', '0px')
+    root.style.setProperty('--studio-vv-height', `${window.innerHeight}px`)
   }
 
   function resetDocumentScroll() {
@@ -35,8 +40,8 @@ export function attachStudioStandaloneViewportGuard() {
   }
 
   function syncViewport(opts?: { forceScrollReset?: boolean }) {
-    applyVars()
     const typing = isTypingTarget(document.activeElement)
+    applyVars(typing)
     if (!typing || opts?.forceScrollReset) resetDocumentScroll()
   }
 

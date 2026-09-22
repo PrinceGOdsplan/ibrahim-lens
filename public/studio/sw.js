@@ -1,6 +1,6 @@
-/* Studio PWA worker. Registered only from /studio. App-shell cache v10. */
+/* Studio PWA worker. Registered only from /studio. App-shell cache v11. */
 
-const SHELL_CACHE = 'ibrahim-studio-shell-v10'
+const SHELL_CACHE = 'ibrahim-studio-shell-v11'
 const PUSH_CACHE = 'ibrahim-studio-push'
 
 const PRECACHE = [
@@ -151,6 +151,7 @@ self.addEventListener('push', (event) => {
       await self.registration.showNotification(title, {
         body,
         icon: '/studio/icon-192.png',
+        badge: '/studio/icon-192.png',
         data: { url },
       })
     })(),

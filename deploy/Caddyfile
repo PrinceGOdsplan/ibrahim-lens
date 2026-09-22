@@ -69,6 +69,16 @@
 		file_server
 	}
 
+	# Delivery share unfurlers need OG tags in the first HTML response (SPA JS is ignored).
+	@deliveryShare {
+		path_regexp deliveryToken ^/g/([A-Za-z0-9_-]+)/?$
+		header_regexp User-Agent (?i)(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|WhatsApp|Applebot|iMessage|Pinterest|redditbot|SkypeUriPreview|Googlebot)
+	}
+	handle @deliveryShare {
+		rewrite * /api/ibrahim/delivery-og/{re.deliveryToken.1}
+		reverse_proxy pocketbase:8090
+	}
+
 	# Client-side routing: unknown paths must return the SPA, not a 404.
 	handle {
 		root * /srv

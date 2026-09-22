@@ -222,6 +222,31 @@ function sameApplicationServerKey(sub: PushSubscription, keyBytes: Uint8Array) {
   return true
 }
 
+async function handPushSecretToWorker(secret: string) {
+  const reg = await navigator.serviceWorker.ready
+  const post = (sw: ServiceWorker | null | undefined) => {
+    sw?.postMessage({ type: 'ibrahim-push-secret', secret })
+  }
+  post(navigator.serviceWorker.controller || reg.active)
+  if (navigator.serviceWorker.controller) return
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      window.clearTimeout(timer)
+      navigator.serviceWorker.removeEventListener('controllerchange', onChange)
+      resolve()
+    }
+    const onChange = () => {
+      post(navigator.serviceWorker.controller)
+      done()
+    }
+    const timer = window.setTimeout(() => {
+      post(reg.active)
+      done()
+    }, 2000)
+    navigator.serviceWorker.addEventListener('controllerchange', onChange)
+  })
+}
+
 export async function subscribeStudioPush() {
   if (!isStudioStandalone()) {
     throw new Error('Add to Home Screen first.')
@@ -284,7 +309,6 @@ export async function subscribeStudioPush() {
     })
   }
   if (secret) {
-    const sw = navigator.serviceWorker.controller || reg.active
-    sw?.postMessage({ type: 'ibrahim-push-secret', secret })
+    await handPushSecretToWorker(secret)
   }
 }
