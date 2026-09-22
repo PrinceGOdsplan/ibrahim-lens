@@ -367,35 +367,77 @@ function WeekBlotter({ days }: { days: DeskShootDay[] }) {
         <h2 id="desk-week" className="font-sans text-sm font-semibold text-studio-fg">
           Upcoming
         </h2>
-        <Link to="/studio/bookings?view=upcoming" className="text-[10px] text-studio-muted hover:text-studio-fg">
+        <Link to="/studio/bookings?view=upcoming" className="shrink-0 text-[10px] text-studio-muted hover:text-studio-fg">
           View schedule
         </Link>
       </div>
-      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+
+      {/* Phone: stacked days so names/times never clip. Desktop: week grid. */}
+      <ul className="space-y-2 sm:hidden">
         {days.map((d) => (
-          <div
+          <li
             key={d.weekday + d.day}
             className={cn(
-              'min-h-[4.5rem] rounded-md border p-1.5',
+              'rounded-md border px-3 py-2',
               d.today ? 'border-studio-accent bg-studio-bg' : 'border-studio-border bg-studio-bg/60',
             )}
           >
-            <div className="flex items-center justify-between gap-1">
-              <span className={cn('text-[10px] font-medium', d.today ? 'text-studio-accent' : 'text-studio-muted')}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className={cn('text-xs font-medium', d.today ? 'text-studio-accent' : 'text-studio-fg')}>
                 {d.weekday}
               </span>
               <span className="text-[10px] text-studio-muted">{d.day}</span>
             </div>
+            {d.shoots.length ? (
+              <ul className="mt-1.5 space-y-1">
+                {d.shoots.map((s) => (
+                  <li key={s.id}>
+                    <Link
+                      to={s.href}
+                      className="flex min-w-0 items-baseline justify-between gap-2 text-xs text-studio-fg hover:text-studio-accent"
+                      title={`${s.name} · ${s.status} · ${s.when}`}
+                    >
+                      <span className="min-w-0 truncate font-medium">{s.name}</span>
+                      <span className="shrink-0 text-[10px] text-studio-muted">
+                        {s.when}
+                        {s.status ? ` · ${s.status}` : ''}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-[10px] text-studio-muted">Nothing booked</p>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <div className="hidden grid-cols-7 gap-1.5 sm:grid sm:gap-2">
+        {days.map((d) => (
+          <div
+            key={d.weekday + d.day}
+            className={cn(
+              'min-h-[4.5rem] min-w-0 overflow-hidden rounded-md border p-1.5',
+              d.today ? 'border-studio-accent bg-studio-bg' : 'border-studio-border bg-studio-bg/60',
+            )}
+          >
+            <div className="flex items-center justify-between gap-1">
+              <span className={cn('truncate text-[10px] font-medium', d.today ? 'text-studio-accent' : 'text-studio-muted')}>
+                {d.weekday}
+              </span>
+              <span className="shrink-0 text-[10px] text-studio-muted">{d.day}</span>
+            </div>
             <ul className="mt-1 space-y-1">
               {d.shoots.map((s) => (
-                <li key={s.id}>
+                <li key={s.id} className="min-w-0">
                   <Link
                     to={s.href}
-                    className="block text-[10px] leading-tight text-studio-fg hover:text-studio-accent"
+                    className="block min-w-0 text-[10px] leading-tight text-studio-fg hover:text-studio-accent"
                     title={`${s.name} · ${s.status} · ${s.when}`}
                   >
                     <span className="block truncate font-medium">{s.name}</span>
-                    <span className="text-studio-muted">
+                    <span className="block truncate text-studio-muted">
                       {s.when}
                       {s.status ? ` · ${s.status}` : ''}
                     </span>
