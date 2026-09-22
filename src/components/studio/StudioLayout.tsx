@@ -460,7 +460,7 @@ export function StudioLayout() {
         {/* Phone bottom hub bar. */}
         <nav
           aria-label="Studio hubs"
-          className="flex shrink-0 border-t border-studio-border bg-studio-panel pb-[env(safe-area-inset-bottom)] md:hidden"
+          className="relative z-40 flex shrink-0 border-t border-studio-border bg-studio-panel pb-[env(safe-area-inset-bottom)] md:hidden"
         >
           {hubs.map((hub) => (
             <NavLink

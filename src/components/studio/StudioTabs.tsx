@@ -37,16 +37,22 @@ export function StudioTabs<T extends string>({
   className,
   'aria-label': ariaLabel = 'Sections',
 }: Props<T>) {
+  const fillMobile = primary.length <= 4 && !secondary?.length
+
   return (
     <div
       className={cn(
-        '-mx-1 flex flex-nowrap items-end gap-x-1 overflow-x-auto overscroll-x-contain border-b border-studio-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        'border-b border-studio-border',
+        fillMobile
+          ? 'max-md:grid max-md:grid-cols-4 max-md:gap-0'
+          : '-mx-1 flex flex-nowrap items-end gap-x-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        !fillMobile && 'flex flex-nowrap items-end gap-x-1',
         className,
       )}
       role="tablist"
       aria-label={ariaLabel}
     >
-      <div className="flex flex-nowrap">
+      <div className={cn('flex flex-nowrap', fillMobile && 'contents max-md:contents')}>
         {primary.map((item) => (
           <button
             key={item.id}
@@ -55,7 +61,11 @@ export function StudioTabs<T extends string>({
             title={item.hint}
             aria-selected={value === item.id}
             onClick={() => onChange(item.id)}
-            className={tabClass(value === item.id)}
+            className={cn(
+              tabClass(value === item.id),
+              fillMobile &&
+                'max-md:w-full max-md:justify-center max-md:px-1 max-md:text-xs max-md:[touch-action:manipulation]',
+            )}
           >
             {item.icon ? <StudioIcon icon={item.icon} className="hidden h-3.5 w-3.5 md:inline-block" /> : null}
             {item.label}

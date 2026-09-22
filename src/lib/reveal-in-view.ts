@@ -1,9 +1,35 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { isStudioStandalone } from '@/lib/notice-channels'
+
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el.parentElement
+  while (node) {
+    const style = window.getComputedStyle(node)
+    const scrollable =
+      /auto|scroll|overlay/.test(style.overflowY) || /auto|scroll|overlay/.test(style.overflow)
+    if (scrollable && node.scrollHeight > node.clientHeight) return node
+    node = node.parentElement
+  }
+  return null
+}
 
 /** Scroll a node into its nearest scrollport after it opens or grows. */
 export function revealInView(el: Element | null, block: ScrollLogicalPosition = 'start') {
   if (!el || !(el instanceof HTMLElement)) return
   const run = () => {
+    const parent = scrollParent(el)
+    if (parent) {
+      const elRect = el.getBoundingClientRect()
+      const parentRect = parent.getBoundingClientRect()
+      const pad = 12
+      if (elRect.bottom > parentRect.bottom - pad) {
+        parent.scrollTop += elRect.bottom - parentRect.bottom + pad
+      } else if (elRect.top < parentRect.top + pad) {
+        parent.scrollTop -= parentRect.top - elRect.top + pad
+      }
+      return
+    }
+    if (isStudioStandalone()) return
     el.scrollIntoView({ block, inline: 'nearest', behavior: 'smooth' })
   }
   requestAnimationFrame(() => requestAnimationFrame(run))
@@ -32,7 +58,7 @@ export function attachFocusReveal(root: HTMLElement | null) {
     const target = event.target
     if (!(target instanceof HTMLElement)) return
     if (!target.matches(FOCUSABLE)) return
-    revealInView(target, 'center')
+    revealInView(target, 'nearest')
   }
   root.addEventListener('focusin', onFocus)
   return () => root.removeEventListener('focusin', onFocus)
