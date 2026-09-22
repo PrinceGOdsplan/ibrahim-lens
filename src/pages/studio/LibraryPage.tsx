@@ -821,16 +821,18 @@ export function StudioGalleryPage() {
         room={room}
         onRoom={(id) => {
           if (id === room) {
-            if (id === 'albums') patchParams({ album: null })
-            if (id === 'work') patchParams({ work: null })
+            if (id === 'albums') patchParams({ album: null, media: null })
+            if (id === 'work') patchParams({ work: null, media: null })
             return
           }
+          // One URL write only — a second setSearchParams in the same click
+          // (e.g. setActiveId) races and can drop room=albums|work on mobile.
           patchParams({
             room: id === 'gallery' ? null : id,
             album: id === 'albums' ? activeAlbumId : null,
             work: id === 'work' ? activeWorkId : null,
+            media: null,
           })
-          if (id !== 'gallery' && id !== 'portfolio') setActiveId(null)
         }}
         portfolioView={portfolioView}
         onPortfolioView={setPortfolioView}
