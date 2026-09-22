@@ -97,9 +97,9 @@ html.studio-lock-scroll #root {
   overscroll-behavior: none;
 }
 
-/* Standalone-only: pin the shell to the visual viewport (keyboard open/close).
-   Mobile Safari never gets .studio-standalone (see attachStudioStandaloneViewportGuard). */
-html.studio-lock-scroll.studio-standalone .studio-shell {
+/* Standalone-only: pin the layout frame to the visual viewport (keyboard open/close).
+   Do NOT target every .studio-shell — Assistant overlays also use that class for tokens. */
+html.studio-lock-scroll.studio-standalone [data-studio-frame] {
   position: fixed;
   top: var(--studio-vv-offset-top, 0px);
   left: 0;
@@ -107,6 +107,35 @@ html.studio-lock-scroll.studio-standalone .studio-shell {
   width: 100%;
   height: var(--studio-vv-height, 100dvh);
   max-height: var(--studio-vv-height, 100dvh);
+}
+
+/* Overlays sit on the visual viewport so the keyboard does not scroll a layout-viewport scrim. */
+html.studio-standalone .studio-vv-layer {
+  top: var(--studio-vv-offset-top, 0px);
+  height: var(--studio-vv-height, 100dvh);
+  bottom: auto;
+}
+
+html.studio-standalone .studio-vv-sheet {
+  top: calc(var(--studio-vv-offset-top, 0px) + max(1rem, env(safe-area-inset-top)));
+  height: calc(
+    var(--studio-vv-height, 100dvh) - max(1rem, env(safe-area-inset-top)) - 1.25rem -
+      env(safe-area-inset-bottom)
+  );
+  bottom: auto;
+}
+
+@media (min-width: 768px) {
+  html.studio-standalone .studio-vv-layer {
+    inset: 0;
+    height: auto;
+  }
+
+  html.studio-standalone .studio-vv-sheet {
+    top: auto;
+    bottom: 1.5rem;
+    height: min(36rem, calc(100dvh - 3rem));
+  }
 }
 
 /* Public — Soft night type (Syne + Sora; no tilts / slashes) */

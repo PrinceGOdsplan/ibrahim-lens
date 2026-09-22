@@ -319,26 +319,29 @@ async function liveConfirmLabel(action: string, payload: Record<string, unknown>
       if (col === 'people') {
         const row = await pb.collection('people').getOne<{ name?: string }>(String(payload.id))
         const name = String(payload.name || row.name || 'Client').trim() || 'Client'
-        let bookingN = 0
-        let deliveryN = 0
-        try {
-          const refs = await Promise.all([
-            pb.collection('bookings').getList(1, 1, { filter: `person="${payload.id}"`, skipTotal: false }),
-            pb.collection('deliveries').getList(1, 1, { filter: `person="${payload.id}"`, skipTotal: false }),
-          ])
-          bookingN = refs[0].totalItems || 0
-          deliveryN = refs[1].totalItems || 0
-        } catch {
-          /* ignore count errors */
+        let bookingN = Number(payload.bookingCount || 0)
+        let deliveryN = Number(payload.deliveryCount || 0)
+        if (!payload.bookingCount && !payload.deliveryCount) {
+          try {
+            const refs = await Promise.all([
+              pb.collection('bookings').getList(1, 1, { filter: `person="${payload.id}"`, skipTotal: false }),
+              pb.collection('deliveries').getList(1, 1, { filter: `person="${payload.id}"`, skipTotal: false }),
+            ])
+            bookingN = refs[0].totalItems || 0
+            deliveryN = refs[1].totalItems || 0
+          } catch {
+            /* ignore count errors */
+          }
         }
         const bits: string[] = []
         if (bookingN) bits.push(`${bookingN} booking${bookingN === 1 ? '' : 's'}`)
         if (deliveryN) bits.push(`${deliveryN} Delivery${deliveryN === 1 ? '' : 's'}`)
+        const cascade =
+          String(payload.cascadeWarning || '').trim() ||
+          (bits.length ? `Also deletes their ${bits.join(' and ')}.` : 'Removes this client from Studio.')
         return {
           title: `Remove ${name}?`,
-          body: bits.length
-            ? `Also deletes their ${bits.join(' and ')}.`
-            : 'Removes this client from Studio.',
+          body: cascade,
           blocked: false,
         }
       }
@@ -519,6 +522,11 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
 
   routeRef.current = { pathname: location.pathname, search: location.search }
 
+  // Full-screen picker sits above the chat; hide the drawer so it is visible on phone.
+  useEffect(() => {
+    if (pick) onClose()
+  }, [pick, onClose])
+
   useEffect(() => {
     const on = () => setOffline(false)
     const off = () => setOffline(true)
@@ -562,7 +570,7 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    const t = window.setTimeout(() => inputRef.current?.focus(), 80)
+    const t = window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 80)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.clearTimeout(t)
@@ -702,8 +710,13 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
   )
 
   const runTurn = useCallback(
-    async (body: { text?: string; open?: boolean; toolResults?: { id: string; name: string; result: unknown }[] }) => {
-      if (workingRef.current && !body.toolResults) return
+    async (body: {
+      text?: string
+      open?: boolean
+      writeError?: string
+      toolResults?: { id: string; name: string; result: unknown }[]
+    }) => {
+      if (workingRef.current && !body.toolResults && !body.writeError) return
       if (offline && !body.open) {
         setError('You are offline.')
         return
@@ -719,12 +732,20 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
         workingRef.current = false
         void cancelAssistantTurn(routeRef.current)
       }, TURN_MS)
+      const continueNudge =
+        'Continue with any remaining parts of my last request. Finish what is still undone.'
       try {
         let round = 0
         let busyTries = 0
-        let payload = { ...body, route: routeRef.current }
+        let payload: {
+          text?: string
+          open?: boolean
+          writeError?: string
+          toolResults?: { id: string; name: string; result: unknown }[]
+          route: typeof routeRef.current
+        } = { ...body, route: routeRef.current }
         let lastMediaHits: { id: string; thumb?: string; href?: string; label?: string }[] = []
-        while (round < 4) {
+        while (round < 8) {
           const turn = await postAssistant(payload)
           if (seqRef.current !== seq) {
             void cancelAssistantTurn(routeRef.current)
@@ -748,6 +769,7 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
           if (applied === 'stop') return
           if (applied && typeof applied === 'object' && 'kind' in applied && applied.kind === 'autos') {
             const summaries: string[] = []
+            let recoverError = ''
             for (const job of applied.autos) {
               try {
                 const result = await postAssistantWrite({
@@ -761,7 +783,8 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
                 if (result.summary) summaries.push(result.summary)
                 if (result.messages) setMessages(result.messages)
               } catch (autoErr) {
-                summaries.push(autoErr instanceof Error ? autoErr.message : 'Could not save one change.')
+                recoverError = autoErr instanceof Error ? autoErr.message : 'Could not save one change.'
+                summaries.push(recoverError)
               }
             }
             if (summaries.length) {
@@ -769,7 +792,6 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
                 const text = summaries.join('\n')
                 const next = [...prev]
                 const last = next[next.length - 1]
-                // Prefer the concrete write outcome over a vague model "Done/Updated".
                 if (last?.role === 'assistant' && last.kind !== 'confirm' && last.kind !== 'pick') {
                   next[next.length - 1] = { ...last, text, kind: 'reply', confirm: null, pick: null }
                 } else {
@@ -779,13 +801,27 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
                 return next
               })
             }
-            // Confirms/picks already applied in applyTurn; only continue if reads remain.
+            if (recoverError) {
+              setError(null)
+              payload = { route: routeRef.current, writeError: recoverError }
+              round += 1
+              continue
+            }
+            if (turn.continueAgenda) {
+              payload = { route: routeRef.current, text: continueNudge }
+              round += 1
+              continue
+            }
             const readsAfterAuto = turn.readTools ?? []
             if (!readsAfterAuto.length) return
           }
           const reads = turn.readTools ?? []
           if (!reads.length) {
-            // Prefer an in-chat preview over opening Gallery unless the model asked to navigate.
+            if (turn.continueAgenda) {
+              payload = { route: routeRef.current, text: continueNudge }
+              round += 1
+              continue
+            }
             if (!turn.ui?.navigate && lastMediaHits[0] && lastMediaHits.length <= 3) {
               const hit = lastMediaHits[0]
               const preview: AssistantMediaPreview = {
@@ -988,6 +1024,8 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
     if (!pendingConfirm || !confirmLive || confirmLive.blocked) return
     setWorking(true)
     setError(null)
+    const continueNudge =
+      'Continue with any remaining parts of my last request. Finish what is still undone.'
     try {
       const result = await postAssistantWrite({
         action: pendingConfirm.action,
@@ -1001,13 +1039,12 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
         setPendingConfirm(null)
         setConfirmQueue([])
         const msg = mailErr instanceof Error ? mailErr.message : 'Could not send mail.'
-        setError(msg)
         setMessages((prev) => [...prev, { role: 'assistant' as const, text: msg, kind: 'error' }])
+        await runTurn({ writeError: msg })
         return
       }
       const summary = doneText(result.summary, 'Saved.')
       let msgs: AssistantUiMessage[] = result.messages ? [...result.messages] : []
-      // Drop leftover confirm chrome; keep only a concrete outcome line.
       msgs = msgs
         .filter((m) => m.kind !== 'confirm' && m.kind !== 'pick')
         .map((m) =>
@@ -1044,12 +1081,15 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
       setConfirmQueue([])
 
       if (result.continueAgenda) {
-        await runTurn({
-          text: 'Continue with any remaining parts of my last request. Finish what is still undone.',
-        })
+        await runTurn({ text: continueNudge })
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save.')
+      setConfirmLive(null)
+      setPendingConfirm(null)
+      setConfirmQueue([])
+      const msg = e instanceof Error ? e.message : 'Could not save.'
+      setMessages((prev) => [...prev, { role: 'assistant' as const, text: msg, kind: 'error' }])
+      await runTurn({ writeError: msg })
     } finally {
       setWorking(false)
     }
@@ -1062,6 +1102,8 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
     if (!jobs.length) return
     setWorking(true)
     setError(null)
+    const continueNudge =
+      'Continue with any remaining parts of my last request. Finish what is still undone.'
     try {
       const batchRes = await postAssistantWrite({
         action: 'confirm_all',
@@ -1070,6 +1112,7 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
       })
       const batch = batchRes.batch?.length ? batchRes.batch : jobs
       const summaries: string[] = []
+      let recoverError = ''
       for (const job of batch) {
         try {
           const result = await postAssistantWrite({
@@ -1080,13 +1123,15 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
           try {
             await applyWriteSideEffects(result)
           } catch (mailErr) {
-            summaries.push(mailErr instanceof Error ? mailErr.message : 'Mail failed.')
+            recoverError = mailErr instanceof Error ? mailErr.message : 'Mail failed.'
+            summaries.push(recoverError)
             continue
           }
           if (result.summary) summaries.push(result.summary)
           if (result.messages) setMessages(result.messages)
         } catch (oneErr) {
-          summaries.push(oneErr instanceof Error ? oneErr.message : 'One change failed.')
+          recoverError = oneErr instanceof Error ? oneErr.message : 'One change failed.'
+          summaries.push(recoverError)
         }
       }
       setConfirmLive(null)
@@ -1106,13 +1151,20 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
           return next
         })
       }
+      if (recoverError) {
+        await runTurn({ writeError: recoverError })
+        return
+      }
       if (batchRes.continueAgenda) {
-        await runTurn({
-          text: 'Continue with any remaining parts of my last request. Finish what is still undone.',
-        })
+        await runTurn({ text: continueNudge })
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save.')
+      setConfirmLive(null)
+      setPendingConfirm(null)
+      setConfirmQueue([])
+      const msg = e instanceof Error ? e.message : 'Could not save.'
+      setMessages((prev) => [...prev, { role: 'assistant' as const, text: msg, kind: 'error' }])
+      await runTurn({ writeError: msg })
     } finally {
       setWorking(false)
     }
@@ -1142,7 +1194,7 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
           <button
             type="button"
             aria-label="Close Assistant"
-            className="fixed inset-0 z-40 bg-studio-scrim"
+            className="studio-vv-layer fixed inset-0 z-40 bg-studio-scrim"
             onClick={onClose}
           />
 
@@ -1151,7 +1203,7 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
             role="dialog"
             aria-modal="true"
             aria-label={displayName}
-            className="studio-shell fixed z-50 flex w-[min(26rem,calc(100vw-1.25rem))] flex-col overflow-hidden rounded-2xl border border-studio-border bg-studio-panel shadow-[0_18px_50px_rgb(26_26_26/0.18)] bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-3 top-[max(1rem,env(safe-area-inset-top))] md:bottom-6 md:right-6 md:top-auto md:h-[min(36rem,calc(100dvh-3rem))]"
+            className="studio-shell studio-vv-sheet fixed z-50 flex w-[min(26rem,calc(100vw-1.25rem))] flex-col overflow-hidden rounded-2xl border border-studio-border bg-studio-panel shadow-[0_18px_50px_rgb(26_26_26/0.18)] bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-3 top-[max(1rem,env(safe-area-inset-top))] md:bottom-6 md:right-6 md:top-auto md:h-[min(36rem,calc(100dvh-3rem))]"
           >
             <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-studio-border px-4">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -1380,7 +1432,9 @@ export function AssistantDrawer({ open, onClose }: { open: boolean; onClose: () 
                 setMessages((prev) => [...prev, { role: 'assistant' as const, text, kind: 'reply' }])
               }
             } catch (e) {
-              setError(e instanceof Error ? e.message : 'Could not save.')
+              const msg = e instanceof Error ? e.message : 'Could not save.'
+              setMessages((prev) => [...prev, { role: 'assistant' as const, text: msg, kind: 'error' }])
+              await runTurn({ writeError: msg })
             } finally {
               setWorking(false)
             }
