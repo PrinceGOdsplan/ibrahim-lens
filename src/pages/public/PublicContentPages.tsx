@@ -397,6 +397,7 @@ export function AboutPage() {
   const [body, setBody] = useState('')
   const [subtitle, setSubtitle] = useState('')
   const [eyebrow, setEyebrow] = useState('About')
+  const [displayName, setDisplayName] = useState('Ibrahim Lens')
   const [artist, setArtist] = useState<MediaRecord | null>(null)
   const [wa, setWa] = useState('')
 
@@ -406,6 +407,7 @@ export function AboutPage() {
         setBody(g.about_body ?? '')
         setSubtitle((g.about_subtitle ?? '').trim())
         setEyebrow(parseEyebrows(g.eyebrows).about)
+        setDisplayName((g.site_display_name ?? '').trim() || 'Ibrahim Lens')
         setWa(whatsappHref(g.contact_phone))
       })
       .catch(() => setBody(''))
@@ -424,21 +426,21 @@ export function AboutPage() {
               record={artist}
               widthKey="half"
               sizes="(min-width: 768px) 55vw, 100vw"
-              alt="Portrait of Ibrahim, the photographer"
+              alt={`Portrait of ${displayName}`}
               loading="eager"
               fetchPriority="high"
               decoding="async"
             />
           ) : (
             <div className="flex h-full items-end p-8">
-              <p className="font-display text-5xl leading-none text-public-fg/20">IL</p>
+              <p className="font-display text-5xl leading-none text-public-fg/20" aria-hidden="true">IL</p>
             </div>
           )}
         </div>
         <div className="order-1 md:order-2 md:pt-8">
           <PublicBreadcrumbs items={[{ label: 'About' }]} />
           <p className="street-eyebrow">{eyebrow}</p>
-          <h1 className="mt-2 font-display text-6xl leading-none sm:text-7xl">Ibrahim Lens</h1>
+          <h1 className="mt-2 font-display text-6xl leading-none sm:text-7xl">{displayName}</h1>
           <p className="street-body mt-4 text-sm">
             {subtitle || 'Portraits / Fashion / Lifestyle / Across Nigeria'}
           </p>

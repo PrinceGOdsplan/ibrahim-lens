@@ -35,17 +35,22 @@ export function AboutTab({ globals, artistPortrait, busy, onSave, onRefresh }: P
   const fileRef = useRef<HTMLInputElement>(null)
   const storySave = useSectionSave()
   const photoSave = useSectionSave()
+  const [name, setName] = useState(globals.site_display_name ?? '')
   const [subtitle, setSubtitle] = useState(globals.about_subtitle ?? '')
   const [body, setBody] = useState(globals.about_body ?? '')
   const [photoError, setPhotoError] = useState<string | null>(null)
 
   useEffect(() => {
+    setName(globals.site_display_name ?? '')
     setSubtitle(globals.about_subtitle ?? '')
     setBody(globals.about_body ?? '')
     storySave.reset()
-  }, [globals.updated, globals.about_subtitle, globals.about_body])
+  }, [globals.updated, globals.site_display_name, globals.about_subtitle, globals.about_body])
 
-  const storyDirty = subtitle !== (globals.about_subtitle ?? '') || body !== (globals.about_body ?? '')
+  const storyDirty =
+    name !== (globals.site_display_name ?? '') ||
+    subtitle !== (globals.about_subtitle ?? '') ||
+    body !== (globals.about_body ?? '')
 
   async function onPickFile(event: ChangeEvent<HTMLInputElement>) {
     const raw = event.target.files?.[0]
@@ -73,6 +78,20 @@ export function AboutTab({ globals, artistPortrait, busy, onSave, onRefresh }: P
       <StudioSection id="story" title="About text" open={openId === 'story'} onToggle={toggle}>
         <div className="space-y-3">
           <div>
+            <Label htmlFor="about-name" className="text-xs text-studio-muted">
+              Name on About
+            </Label>
+            <Input
+              id="about-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Ibrahim Lens"
+            />
+            <p className="mt-1 text-[11px] text-studio-muted">
+              Same name used in the footer and elsewhere on the site.
+            </p>
+          </div>
+          <div>
             <Label htmlFor="about-subtitle" className="text-xs text-studio-muted">
               Line under your name (optional)
             </Label>
@@ -99,7 +118,11 @@ export function AboutTab({ globals, artistPortrait, busy, onSave, onRefresh }: P
           status={storySave.status}
           error={storySave.error}
           dirty={storyDirty}
-          onSave={() => storySave.runSave(() => onSave({ about_subtitle: subtitle, about_body: body }))}
+          onSave={() =>
+            storySave.runSave(() =>
+              onSave({ site_display_name: name, about_subtitle: subtitle, about_body: body }),
+            )
+          }
         />
       </StudioSection>
 
