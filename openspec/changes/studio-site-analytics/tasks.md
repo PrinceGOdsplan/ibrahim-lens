@@ -10,4 +10,4 @@
 
 ## 3. Verify
 
-- [ ] 3.1 Signed-in request returns visits/top paths; guest 401; Dashboard strip renders without breaking desk pulse
+- [x] 3.1 Signed-in request returns visits/top paths; guest 401; Dashboard strip renders without breaking desk pulse
