@@ -10,4 +10,4 @@
 
 ## 3. Verify
 
-- [ ] 3.1 `curl -sI /og-default.jpg` is image/jpeg; unknown path is 404; About uses saved name after deploy
+- [x] 3.1 `curl -sI /og-default.jpg` is image/jpeg; unknown path is 404; About uses saved name after deploy
