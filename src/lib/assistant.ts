@@ -62,6 +62,8 @@ export type AssistantTurn = {
   cancelled?: boolean
   error?: string
   opened?: boolean
+  continueAgenda?: boolean
+  agenda?: string
 }
 
 export type AssistantWriteResult = {
