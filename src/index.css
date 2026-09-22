@@ -97,6 +97,12 @@ html.studio-lock-scroll #root {
   overscroll-behavior: none;
 }
 
+/* Standalone-only: counter iOS visualViewport.offsetTop drift after scroll/tap.
+   Mobile Safari never gets .studio-standalone (see attachStudioStandaloneViewportGuard). */
+html.studio-lock-scroll.studio-standalone .studio-shell {
+  translate: 0 var(--studio-vv-top, 0px);
+}
+
 /* Public — Soft night type (Syne + Sora; no tilts / slashes) */
 .public-shell {
   --font-display: 'Syne', ui-sans-serif, system-ui, sans-serif;

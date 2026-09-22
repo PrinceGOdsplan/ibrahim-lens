@@ -1,6 +1,6 @@
-/* Studio PWA worker. Registered only from /studio. App-shell cache v2. */
+/* Studio PWA worker. Registered only from /studio. App-shell cache v5. */
 
-const SHELL_CACHE = 'ibrahim-studio-shell-v3'
+const SHELL_CACHE = 'ibrahim-studio-shell-v5'
 const PUSH_CACHE = 'ibrahim-studio-push'
 
 const PRECACHE = [

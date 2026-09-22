@@ -20,13 +20,14 @@ import {
 import { pbErrorMessage } from '@/lib/pb-error'
 import { StudioHubHeader } from '@/components/studio/StudioHubHeader'
 import { StudioHubShell, StudioScrollPane } from '@/components/studio/StudioHubShell'
+import { STUDIO_SHORT_NAME } from '@/lib/studio-brand'
 import { cn } from '@/lib/utils'
 import { useStudioRecordRefresh } from '@/lib/studio-record-sync'
 
 function DashboardSkeleton() {
   return (
     <StudioHubShell>
-      <StudioHubHeader title="Dashboard" />
+      <StudioHubHeader title="Dashboard" mobileTitle={STUDIO_SHORT_NAME} />
       <StudioScrollPane innerClassName="space-y-4">
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-40 w-full" />
@@ -487,7 +488,7 @@ export function StudioDashboardPage() {
   if (error && !data) {
     return (
       <StudioHubShell>
-        <StudioHubHeader title="Dashboard" />
+        <StudioHubHeader title="Dashboard" mobileTitle={STUDIO_SHORT_NAME} />
         <StudioScrollPane innerClassName="space-y-8">
           <Alert variant="error" className="mt-2" onRetry={() => load(period)}>
             {error}
@@ -508,6 +509,7 @@ export function StudioDashboardPage() {
     <StudioHubShell>
       <StudioHubHeader
         title="Dashboard"
+        mobileTitle={STUDIO_SHORT_NAME}
         actions={<PeriodControl period={period} onChange={onPeriod} />}
       />
       <StudioScrollPane

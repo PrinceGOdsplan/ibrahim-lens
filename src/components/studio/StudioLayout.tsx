@@ -16,7 +16,7 @@ import {
 import { SurfaceProvider } from '@/components/ui/surface'
 import { AssistantChat } from '@/components/studio/AssistantDrawer'
 import { StudioIcon } from '@/components/studio/StudioIconButton'
-import { STUDIO_PRODUCT_NAME } from '@/lib/studio-brand'
+import { STUDIO_PRODUCT_NAME, STUDIO_SHORT_NAME } from '@/lib/studio-brand'
 import { useAuth } from '@/lib/auth'
 import { startStudioHeartbeat } from '@/lib/notifications'
 import { useStudioNotices } from '@/lib/studio-notices'
@@ -29,13 +29,14 @@ import {
   studioLightVibrate,
   useStudioPwaSurface,
 } from '@/lib/studio-pwa'
+import { attachStudioStandaloneViewportGuard } from '@/lib/studio-standalone-viewport'
 import { cn } from '@/lib/utils'
 import type { LucideIcon } from 'lucide-react'
 
 const NAV_KEY = 'studio-nav-collapsed'
 
 const hubs: { to: string; label: string; short: string; end?: boolean; icon: LucideIcon }[] = [
-  { to: '/studio', label: 'Dashboard', short: 'Home', end: true, icon: LayoutDashboard },
+  { to: '/studio', label: 'Dashboard', short: STUDIO_SHORT_NAME, end: true, icon: LayoutDashboard },
   { to: '/studio/gallery', label: 'Gallery', short: 'Gallery', icon: Images },
   { to: '/studio/website', label: 'Website', short: 'Site', icon: Globe },
   { to: '/studio/bookings', label: 'Bookings', short: 'Book', icon: CalendarDays },
@@ -101,7 +102,11 @@ export function StudioLayout() {
   useEffect(() => {
     const root = document.documentElement
     root.classList.add('studio-lock-scroll')
-    return () => root.classList.remove('studio-lock-scroll')
+    const detachViewportGuard = attachStudioStandaloneViewportGuard()
+    return () => {
+      detachViewportGuard()
+      root.classList.remove('studio-lock-scroll')
+    }
   }, [])
 
   useEffect(() => {
