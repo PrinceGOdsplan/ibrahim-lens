@@ -11,7 +11,7 @@ import { isStudioStandalone } from '@/lib/notice-channels'
 
 const PUBLIC_VIEWPORT = 'width=device-width, initial-scale=1.0, viewport-fit=cover'
 const STUDIO_VIEWPORT =
-  'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content'
+  'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content'
 const PUBLIC_THEME = '#100e0b'
 
 /** iPhone launch sizes used by apple-touch-startup-image (portrait). */
