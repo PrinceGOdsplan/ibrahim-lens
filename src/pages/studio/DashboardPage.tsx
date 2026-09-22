@@ -17,6 +17,7 @@ import {
   type DeskPeriod,
   type DeskShootDay,
 } from '@/lib/dashboard'
+import { loadSiteAnalytics, type SiteAnalytics } from '@/lib/site-analytics'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { StudioHubHeader } from '@/components/studio/StudioHubHeader'
 import { StudioHubShell, StudioScrollPane } from '@/components/studio/StudioHubShell'
@@ -483,9 +484,47 @@ function LatestFrames({ frames }: { frames: DashboardPulse['frames'] }) {
   )
 }
 
+function pathLabel(path: string) {
+  if (path === '/' || path === '') return 'Home'
+  return path
+}
+
+function SiteVisitsStrip({ site }: { site: SiteAnalytics | null }) {
+  if (!site || !site.available) return null
+  return (
+    <div className="rounded-xl border border-studio-border bg-studio-panel p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-studio-muted">Site</p>
+          <p className="mt-1 font-sans text-3xl font-semibold tracking-tight text-studio-fg">
+            {site.visits.toLocaleString()}
+          </p>
+          <p className="mt-0.5 text-xs text-studio-muted">Visits · public pages</p>
+        </div>
+        <div className="min-w-0 flex-1 sm:max-w-md">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-studio-muted">Top pages</p>
+          {site.topPaths.length === 0 ? (
+            <p className="text-xs text-studio-muted">No public page views in this period yet.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {site.topPaths.map((row) => (
+                <li key={row.path} className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="truncate text-studio-fg">{pathLabel(row.path)}</span>
+                  <span className="shrink-0 tabular-nums text-studio-muted">{row.views.toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function StudioDashboardPage() {
   const [period, setPeriod] = useState<DeskPeriod>(readDeskPeriod)
   const [data, setData] = useState<DashboardPulse | null>(null)
+  const [site, setSite] = useState<SiteAnalytics | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -507,6 +546,9 @@ export function StudioDashboardPage() {
       .finally(() => {
         if (alive) setRefreshing(false)
       })
+    void loadSiteAnalytics(p).then((next) => {
+      if (alive) setSite(next)
+    })
     return () => {
       alive = false
     }
@@ -570,6 +612,8 @@ export function StudioDashboardPage() {
           <h2 id="desk-overview" className="sr-only">
             Overview
           </h2>
+
+          <SiteVisitsStrip site={site} />
 
           <div className="rounded-xl border border-studio-border bg-studio-panel p-4">
             <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
