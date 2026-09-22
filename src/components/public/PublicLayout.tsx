@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { brandLogoUrl, getBrandSettings } from '@/lib/library'
+import { applyDocumentFavicon, brandFaviconUrl, brandLogoUrl, getBrandSettings } from '@/lib/library'
 import { whatsappHref } from '@/lib/phone'
 import { getWebsiteGlobals, type WebsiteGlobals } from '@/lib/website'
 import { StreetAtmosphere } from '@/components/public/StreetAtmosphere'
@@ -35,8 +35,14 @@ export function PublicLayout() {
 
   useEffect(() => {
     getBrandSettings()
-      .then((brand) => setLogoUrl(brandLogoUrl(brand)))
-      .catch(() => setLogoUrl(''))
+      .then((brand) => {
+        setLogoUrl(brandLogoUrl(brand))
+        applyDocumentFavicon(brandFaviconUrl(brand))
+      })
+      .catch(() => {
+        setLogoUrl('')
+        applyDocumentFavicon('')
+      })
     getWebsiteGlobals()
       .then(setGlobals)
       .catch(() => setGlobals(null))

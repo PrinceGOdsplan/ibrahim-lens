@@ -44,6 +44,7 @@ export type TagRecord = RecordModel & {
 export type BrandRecord = RecordModel & {
   key: string
   logo: string
+  favicon?: string
 }
 
 export function mediaVault(record: MediaRecord): MediaVault {
@@ -908,9 +909,50 @@ export async function upsertBrandLogo(file: File) {
   return pb.collection('brand_settings').create<BrandRecord>(form)
 }
 
+export async function upsertBrandFavicon(file: File) {
+  const max = getMaxUploadMb() * 1024 * 1024
+  if (file.size > max) throw new Error(`Favicon must be under ${getMaxUploadMb()}MB.`)
+  const ok = /^(image\/(jpeg|png|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)|image\/ico)$/i.test(file.type)
+  if (!ok && !/\.(ico|png|jpe?g|webp|svg)$/i.test(file.name)) {
+    throw new Error('Use an ICO, PNG, JPEG, WebP, or SVG favicon.')
+  }
+
+  const existing = await getBrandSettings()
+  const form = new FormData()
+  form.append('favicon', file)
+  form.append('key', 'site')
+
+  if (existing) {
+    return pb.collection('brand_settings').update<BrandRecord>(existing.id, form)
+  }
+  return pb.collection('brand_settings').create<BrandRecord>(form)
+}
+
 export function brandLogoUrl(record: BrandRecord | null) {
   if (!record?.logo) return ''
   return pb.files.getURL(record, record.logo, { thumb: '200x0' })
+}
+
+export function brandFaviconUrl(record: BrandRecord | null) {
+  if (!record?.favicon) return ''
+  return pb.files.getURL(record, record.favicon)
+}
+
+/** Document icon for public pages. Falls back to the built-in SVG when Brand has none. */
+export function applyDocumentFavicon(href: string) {
+  if (typeof document === 'undefined') return
+  const url = href || '/favicon.svg'
+  let el = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]')
+  if (!el) {
+    el = document.createElement('link')
+    el.rel = 'icon'
+    document.head.appendChild(el)
+  }
+  el.href = url
+  if (/\.svg(\?|$)/i.test(url)) el.type = 'image/svg+xml'
+  else if (/\.png(\?|$)/i.test(url)) el.type = 'image/png'
+  else if (/\.ico(\?|$)/i.test(url)) el.type = 'image/x-icon'
+  else el.removeAttribute('type')
 }
 
 export async function listPublicPortfolio() {

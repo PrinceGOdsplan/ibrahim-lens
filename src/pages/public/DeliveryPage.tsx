@@ -14,7 +14,7 @@ import {
   submitDeliveryFeedback,
 } from '@/lib/clients'
 import { fetchAsBlob, iosSavesImagesViaShare, photographDownloadName, saveBlob, saveImageToDevice, shareImageFile, zipStore } from '@/lib/download'
-import { mediaOriginalUrl, mediaThumbUrl, slugify, type MediaRecord } from '@/lib/library'
+import { applyDocumentFavicon, brandFaviconUrl, getBrandSettings, mediaOriginalUrl, mediaThumbUrl, slugify, type MediaRecord } from '@/lib/library'
 import { DeliveryWordmark } from '@/components/public/DeliveryWordmark'
 
 export function DeliveryPage() {
@@ -66,6 +66,12 @@ export function DeliveryPage() {
       cancelled = true
     }
   }, [token])
+
+  useEffect(() => {
+    getBrandSettings()
+      .then((brand) => applyDocumentFavicon(brandFaviconUrl(brand)))
+      .catch(() => applyDocumentFavicon(''))
+  }, [])
 
   useEffect(() => {
     if (!delivery) return

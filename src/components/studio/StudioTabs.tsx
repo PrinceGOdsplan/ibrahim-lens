@@ -74,7 +74,9 @@ export function StudioTabs<T extends string>({
         'border-b border-studio-border',
         fillMobile
           ? 'grid grid-cols-4 md:flex md:flex-nowrap md:items-end md:gap-x-1'
-          : '-mx-1 flex flex-nowrap items-end gap-x-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          : // Wrap on phone instead of a horizontal scroller — iOS rubber-band on
+            // overflow-x-auto made Clients / Website / Settings tabs feel like they drag.
+            '-mx-1 flex flex-wrap items-end gap-x-1 overscroll-none md:flex-nowrap md:overflow-x-auto md:overscroll-x-contain md:[scrollbar-width:none] md:[&::-webkit-scrollbar]:hidden',
         className,
       )}
       role="tablist"

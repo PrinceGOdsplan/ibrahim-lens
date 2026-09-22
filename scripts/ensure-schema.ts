@@ -6,6 +6,7 @@ import type PocketBase from 'pocketbase'
 
 const AUTHED = '@request.auth.id != ""'
 const MIME = ['image/jpeg', 'image/png', 'image/webp']
+const FAVICON_MIME = [...MIME, 'image/svg+xml', 'image/x-icon', 'image/vnd.microsoft.icon']
 /** Held or Gallery photos on a published Work page. */
 const MEDIA_VIA_PUBLISHED_WORK =
   '@collection.work_projects.show_on_website = true && (@collection.work_projects.images.id ?= id || @collection.work_projects.cover = id)'
@@ -348,12 +349,29 @@ export async function ensureLibrarySchema(pb: PocketBase) {
           mimeTypes: MIME,
           thumbs: ['200x0'],
         },
+        {
+          name: 'favicon',
+          type: 'file',
+          maxSelect: 1,
+          maxSize,
+          mimeTypes: FAVICON_MIME,
+        },
         { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
         { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
       ],
       indexes: ['CREATE UNIQUE INDEX idx_brand_settings_key ON brand_settings (key)'],
     })
     console.log('Created collection: brand_settings')
+  } else {
+    brand = await ensureFields(pb, brand, [
+      {
+        name: 'favicon',
+        type: 'file',
+        maxSelect: 1,
+        maxSize,
+        mimeTypes: FAVICON_MIME,
+      },
+    ])
   }
 
   // Tags are readable publicly (Portfolio filters); only Studio can mutate
