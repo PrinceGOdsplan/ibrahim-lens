@@ -1032,7 +1032,7 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
     escapeOg(title) +
     "</p></body></html>"
 
-  return e.blob(200, "text/html; charset=utf-8", html)
+  return e.html(200, html)
 })
 
 routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
