@@ -3,28 +3,14 @@
 var SITE_ANALYTICS_CACHE = { at: 0, key: "", payload: null }
 var SITE_ANALYTICS_CACHE_MS = 5 * 60 * 1000
 
-function siteAnalyticsConfigured() {
-  var token = String($os.getenv("CLOUDFLARE_API_TOKEN") || "").trim()
-  var account = String($os.getenv("CLOUDFLARE_ACCOUNT_ID") || "").trim()
-  var siteTag = String($os.getenv("CLOUDFLARE_RUM_SITE_TAG") || "").trim()
-  return !!(token && account && siteTag)
+function siteAnalyticsEmpty(period) {
+  return { available: false, visits: 0, pageViews: 0, topPaths: [], period: period }
 }
 
-function siteAnalyticsPeriodStart(period) {
-  var end = new Date()
-  var start = new Date(end.getTime())
-  if (period === "30d") {
-    start.setUTCDate(start.getUTCDate() - 30)
-  } else if (period === "all") {
-    start.setUTCDate(start.getUTCDate() - 90)
-  } else {
-    start.setUTCDate(start.getUTCDate() - 7)
-  }
-  return { start: start, end: end }
-}
-
-function toRfc3339(d) {
-  return d.toISOString().replace(/\.\d{3}Z$/, "Z")
+function siteAnalyticsIso(ms) {
+  var s = new Date(ms).toISOString()
+  if (s.indexOf(".") > 0) return s.split(".")[0] + "Z"
+  return s
 }
 
 function isPublicMarketingPath(path) {
@@ -35,19 +21,13 @@ function isPublicMarketingPath(path) {
   if (p.indexOf("/api") === 0) return false
   if (p.indexOf("/_") === 0) return false
   if (p.indexOf("/assets") === 0) return false
-  if (p === "/" || p === "") return true
-  var base = p.replace(/\/$/, "")
-  if (
-    base === "/about" ||
-    base === "/portfolio" ||
-    base === "/contact" ||
-    base === "/privacy" ||
-    base === "/terms" ||
-    base === "/work"
-  ) {
-    return true
-  }
-  if (base.indexOf("/work/") === 0 && base.length > "/work/".length) return true
+  if (p === "/") return true
+  if (p.indexOf("/about") === 0) return true
+  if (p.indexOf("/portfolio") === 0) return true
+  if (p.indexOf("/work") === 0) return true
+  if (p.indexOf("/contact") === 0) return true
+  if (p.indexOf("/privacy") === 0) return true
+  if (p.indexOf("/terms") === 0) return true
   return false
 }
 
@@ -55,9 +35,7 @@ function fetchCloudflareSiteAnalytics(period) {
   var token = String($os.getenv("CLOUDFLARE_API_TOKEN") || "").trim()
   var account = String($os.getenv("CLOUDFLARE_ACCOUNT_ID") || "").trim()
   var siteTag = String($os.getenv("CLOUDFLARE_RUM_SITE_TAG") || "").trim()
-  if (!token || !account || !siteTag) {
-    return { available: false, visits: 0, pageViews: 0, topPaths: [], period: period }
-  }
+  if (!token || !account || !siteTag) return siteAnalyticsEmpty(period)
 
   var cacheKey = period + "|" + account + "|" + siteTag
   var now = Date.now()
@@ -69,32 +47,24 @@ function fetchCloudflareSiteAnalytics(period) {
     return SITE_ANALYTICS_CACHE.payload
   }
 
-  var range = siteAnalyticsPeriodStart(period)
-  var query =
+  var days = 7
+  if (period === "30d") days = 30
+  if (period === "all") days = 90
+  var endMs = now
+  var startMs = endMs - days * 86400000
+  var start = siteAnalyticsIso(startMs)
+  var end = siteAnalyticsIso(endMs)
+
+  var q =
     "query($accountTag: string!, $siteTag: string!, $start: Time!, $end: Time!) {" +
-    "  viewer {" +
-    "    accounts(filter: { accountTag: $accountTag }) {" +
-    "      total: rumPageloadEventsAdaptiveGroups(" +
-    "        limit: 1" +
-    "        filter: { datetime_geq: $start, datetime_leq: $end, siteTag: $siteTag }" +
-    "      ) { count sum { visits } }" +
-    "      byPath: rumPageloadEventsAdaptiveGroups(" +
-    "        limit: 40" +
-    "        filter: { datetime_geq: $start, datetime_leq: $end, siteTag: $siteTag }" +
-    "        orderBy: [count_DESC]" +
-    "      ) { count sum { visits } dimensions { requestPath } }" +
-    "    }" +
-    "  }" +
-    "}"
+    " viewer { accounts(filter: { accountTag: $accountTag }) {" +
+    " total: rumPageloadEventsAdaptiveGroups(limit: 1, filter: { datetime_geq: $start, datetime_leq: $end, siteTag: $siteTag }) { count sum { visits } }" +
+    " byPath: rumPageloadEventsAdaptiveGroups(limit: 40, filter: { datetime_geq: $start, datetime_leq: $end, siteTag: $siteTag }, orderBy: [count_DESC]) { count dimensions { requestPath } }" +
+    " } } }"
 
   var body = JSON.stringify({
-    query: query,
-    variables: {
-      accountTag: account,
-      siteTag: siteTag,
-      start: toRfc3339(range.start),
-      end: toRfc3339(range.end),
-    },
+    query: q,
+    variables: { accountTag: account, siteTag: siteTag, start: start, end: end },
   })
 
   var res = $http.send({
@@ -108,40 +78,44 @@ function fetchCloudflareSiteAnalytics(period) {
     timeout: 20,
   })
 
-  var parsed = res.json || {}
-  try {
-    if (!res.json && res.raw) parsed = JSON.parse(String(res.raw))
-  } catch (_) {
-    parsed = {}
+  if (!res || res.statusCode < 200 || res.statusCode >= 300) return siteAnalyticsEmpty(period)
+
+  var parsed = res.json
+  if (!parsed) {
+    try {
+      parsed = JSON.parse(String(res.raw || "{}"))
+    } catch (_) {
+      return siteAnalyticsEmpty(period)
+    }
   }
+  if (parsed.errors) return siteAnalyticsEmpty(period)
 
-  if (res.statusCode < 200 || res.statusCode >= 300 || (parsed.errors && parsed.errors.length)) {
-    return { available: false, visits: 0, pageViews: 0, topPaths: [], period: period }
-  }
-
-  var accounts = (((parsed.data || {}).viewer || {}).accounts) || []
-  var accountRow = accounts[0] || {}
-  var totalRow = (accountRow.total && accountRow.total[0]) || {}
-  var visits = Number((totalRow.sum && totalRow.sum.visits) || 0)
-  if (visits !== visits) visits = 0
-
-  var byPath = accountRow.byPath || []
+  var visits = 0
+  var pageViews = 0
   var topPaths = []
-  var i
-  for (i = 0; i < byPath.length; i++) {
-    var row = byPath[i]
-    var path = String(((row.dimensions || {}).requestPath) || "")
-    if (!isPublicMarketingPath(path)) continue
-    var views = Number(row.count || 0)
-    if (views !== views || views <= 0) continue
-    topPaths.push({ path: path === "" ? "/" : path, views: views })
-    if (topPaths.length >= 5) break
+  try {
+    var accountRow = parsed.data.viewer.accounts[0]
+    var totalRow = accountRow.total[0]
+    visits = Number(totalRow.sum.visits) || 0
+    pageViews = Number(totalRow.count) || 0
+    var paths = accountRow.byPath || []
+    var i
+    for (i = 0; i < paths.length; i++) {
+      var path = String(paths[i].dimensions.requestPath || "")
+      if (!isPublicMarketingPath(path)) continue
+      var views = Number(paths[i].count) || 0
+      if (views <= 0) continue
+      topPaths.push({ path: path, views: views })
+      if (topPaths.length >= 5) break
+    }
+  } catch (_) {
+    return siteAnalyticsEmpty(period)
   }
 
   var payload = {
     available: true,
     visits: visits,
-    pageViews: Number(totalRow.count || 0) || 0,
+    pageViews: pageViews,
     topPaths: topPaths,
     period: period,
   }
@@ -153,30 +127,17 @@ routerAdd(
   "GET",
   "/api/ibrahim/site-analytics",
   (e) => {
-    var info = e.requestInfo() || {}
-    var period = String((info.query && info.query.period) || "7d").trim()
+    var period = "7d"
+    try {
+      var info = e.requestInfo() || {}
+      period = String((info.query && info.query.period) || "7d").trim()
+    } catch (_) {}
     if (period !== "7d" && period !== "30d" && period !== "all") period = "7d"
-
-    if (!siteAnalyticsConfigured()) {
-      return e.json(200, {
-        available: false,
-        visits: 0,
-        pageViews: 0,
-        topPaths: [],
-        period: period,
-      })
-    }
 
     try {
       return e.json(200, fetchCloudflareSiteAnalytics(period))
     } catch (_) {
-      return e.json(200, {
-        available: false,
-        visits: 0,
-        pageViews: 0,
-        topPaths: [],
-        period: period,
-      })
+      return e.json(200, siteAnalyticsEmpty(period))
     }
   },
   $apis.requireAuth(),
