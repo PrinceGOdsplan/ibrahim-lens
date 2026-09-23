@@ -165,18 +165,20 @@ export function GalleryToolbar({
 
       {(photoWall || collectionIndex || room === 'portfolio') && arrangeOpen ? (
         <div className={cn('mt-3 flex flex-wrap items-center gap-3 text-xs')}>
-          <label className="flex items-center gap-1.5 text-studio-muted">
-            Sort
-            <Select
-              variant="toolbar"
-              value={collectionIndex && sort === 'tag' ? 'name' : sort}
-              onChange={(event) => onSort(event.target.value as SortMode)}
-            >
-              <option value="date">Date</option>
-              <option value="name">Name</option>
-              {photoWall ? <option value="tag">Tag</option> : null}
-            </Select>
-          </label>
+          {!(collectionIndex && room === 'work') ? (
+            <label className="flex items-center gap-1.5 text-studio-muted">
+              Sort
+              <Select
+                variant="toolbar"
+                value={collectionIndex && sort === 'tag' ? 'name' : sort}
+                onChange={(event) => onSort(event.target.value as SortMode)}
+              >
+                <option value="date">Date</option>
+                <option value="name">Name</option>
+                {photoWall ? <option value="tag">Tag</option> : null}
+              </Select>
+            </label>
+          ) : null}
           {photoWall ? (
             <label className="flex items-center gap-1.5 text-studio-muted">
               Tag
