@@ -23,4 +23,6 @@ PocketBase JSVM serializes each handler and runs it in an isolated program. Top-
 ## Risks / Trade-offs
 
 - Shared module registry: mutate carefully (guest rate-limit map lives in the module on purpose).
-- Large hook file edits — deploy hooks only; no SPA rebuild required for mail/push restore.
+- Large hook file edits — deploy hooks only; no SPA rebuild required for mail restore.
+- Resend on port 587 needs `smtp.tls = false` (STARTTLS). `tls = true` caused immediate TLS dial failures.
+- If `VAPID_PUBLIC_KEY` was missing while the SPA was built with a different pair, Mobile needs a fresh Allow after the matching public is served from `/api/ibrahim/vapid-public` (derived from private when env public is empty). Stale `push_subscriptions` should be cleared once.
