@@ -1,263 +1,32 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-function requestInfo(e) {
-  try {
-    return e.requestInfo()
-  } catch {
-    return { query: {}, body: {} }
-  }
-}
-
-/** Client IP for guest rate limits (proxy headers when behind Caddy/CF). */
-function clientIp(e, info) {
-  try {
-    if (e && typeof e.realIP === "function") {
-      const ip = String(e.realIP() || "").trim()
-      if (ip) return ip
-    }
-  } catch (_) {}
-  try {
-    if (e && typeof e.remoteIP === "function") {
-      const ip = String(e.remoteIP() || "").trim()
-      if (ip) return ip
-    }
-  } catch (_) {}
-  const h = (info && info.headers) || {}
-  const raw = String(
-    h["cf_connecting_ip"] || h["x_real_ip"] || h["x_forwarded_for"] || "",
-  ).trim()
-  if (raw) return raw.split(",")[0].trim()
-  return "unknown"
-}
-
-/** In-memory sliding window. Fine for a single PocketBase process. */
-var __guestRate = {}
-
-function guestRateLimit(bucket, max, windowMs) {
-  const now = Date.now()
-  let arr = __guestRate[bucket] || []
-  arr = arr.filter(function (t) {
-    return now - t < windowMs
-  })
-  if (arr.length >= max) {
-    __guestRate[bucket] = arr
-    return false
-  }
-  arr.push(now)
-  __guestRate[bucket] = arr
-  if (Object.keys(__guestRate).length > 4000) {
-    for (const k in __guestRate) {
-      const kept = (__guestRate[k] || []).filter(function (t) {
-        return now - t < windowMs
-      })
-      if (!kept.length) delete __guestRate[k]
-      else __guestRate[k] = kept
-    }
-  }
-  return true
-}
-
-function loadNoticeSettings() {
-  try {
-    return $app.findFirstRecordByFilter("notification_settings", 'key = "notifications"')
-  } catch {
-    return null
-  }
-}
-
-function recordMailError(message) {
-  const settings = loadNoticeSettings()
-  if (!settings) return
-  settings.set("last_send_error", String(message).slice(0, 500))
-  $app.save(settings)
-}
-
-function recordMailOk() {
-  const settings = loadNoticeSettings()
-  if (!settings) return
-  settings.set("last_send_error", "")
-  settings.set("last_sent_at", new Date().toISOString().replace("T", " "))
-  $app.save(settings)
-}
-
-function smtpReady() {
-  try {
-    return Boolean($app.settings().smtp && $app.settings().smtp.enabled)
-  } catch {
-    return false
-  }
-}
-
-/** Unset matches Studio (`!== false`). Only an explicit off blocks client mail. */
-function clientPrefOn(settings, field) {
-  if (!settings) return true
-  try {
-    return settings.get(field) !== false
-  } catch {
-    return true
-  }
-}
-
-function siteUrl() {
-  const env = ($os.getenv("SITE_URL") || "").replace(/\/$/, "")
-  if (env) return env
-  try {
-    const appURL = ($app.settings().meta.appURL || "").replace(/\/$/, "")
-    if (appURL) return appURL
-  } catch {
-    // fall through
-  }
-  return "https://ibrahimlens.com.ng"
-}
-
-function photographerRecord() {
-  try {
-    return $app.findFirstRecordByFilter("users", "email != ''")
-  } catch {
-    return null
-  }
-}
-
-function parseJson(raw, fallback) {
-  if (raw == null || raw === "") return fallback
-  if (typeof raw === "object") return raw
-  try {
-    return JSON.parse(String(raw))
-  } catch {
-    return fallback
-  }
-}
-
-function channelOn(settings, event, key) {
-  if (!settings) return false
-  const channels = parseJson(settings.get("channels"), null)
-  if (channels && channels[event] && typeof channels[event][key] === "boolean") {
-    return channels[event][key]
-  }
-  if (event === "booking" || event === "feedback" || event === "message") {
-    if (key === "email") return settings.getBool("photographer_away") !== false
-    if (key === "inApp") return true
-  }
-  return false
-}
-
-function brandedMail(title, bodyHtml, ctaHref, ctaLabel) {
-  const origin = siteUrl()
-  const link = ctaHref || origin + "/studio"
-  const label = ctaLabel || "Open Studio"
-  return (
-    '<div style="font-family:Georgia,serif;max-width:32rem;margin:0 auto;color:#1a1a1a">' +
-    '<p style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#6b6b6b">Ibrahim Lens</p>' +
-    "<h1 style=\"font-size:1.5rem;font-weight:normal;margin:0.5rem 0 1rem\">" +
-    title +
-    "</h1>" +
-    '<div style="font-size:1rem;line-height:1.5">' +
-    bodyHtml +
-    "</div>" +
-    '<p style="margin:1.5rem 0"><a href="' +
-    link +
-    '" style="display:inline-block;padding:0.65rem 1.1rem;background:#1a1a1a;color:#f7f7f5;text-decoration:none">' +
-    label +
-    "</a></p>" +
-    '<p style="font-size:12px;color:#6b6b6b">Ibrahim Lens · Studio</p></div>'
-  )
-}
-
-function hasDate(record, field) {
-  try {
-    const dt = record.getDateTime(field)
-    return dt && dt.time().unixMilli() > 100000
-  } catch {
-    return false
-  }
-}
-
-function sendMail(to, subject, html) {
-  if (!to || !smtpReady()) return false
-  const meta = $app.settings().meta
-  const message = new MailerMessage({
-    from: {
-      address: meta.senderAddress || to,
-      name: meta.senderName || "Ibrahim Lens",
-    },
-    to: [{ address: to }],
-    subject,
-    html,
-  })
-  $app.newMailClient().send(message)
-  return true
-}
-
-function notifyAddress(settings) {
-  const user = photographerRecord()
-  return (settings.getString("notify_email") || (user && user.getString("email")) || "").trim()
-}
-
-function enqueuePush(title, body, url) {
-  let rows = []
-  try {
-    rows = $app.findRecordsByFilter("push_subscriptions", "id != ''", "-created", 20, 0)
-  } catch {
-    return 0
-  }
-  const pending = { title: title, body: body, url: url }
-  let sent = 0
-  for (let i = 0; i < rows.length; i++) {
-    try {
-      rows[i].set("pending", pending)
-      $app.save(rows[i])
-      const sub = notifyAddress(loadNoticeSettings())
-      sendWebPush(
-        rows[i].getString("endpoint"),
-        sub ? "mailto:" + sub : "mailto:studio@ibrahimlens.com.ng",
-        pending,
-        rows[i].getString("p256dh"),
-        rows[i].getString("auth"),
-      )
-      sent++
-    } catch (err) {
-      const msg = String(err)
-      if (msg.indexOf("HTTP 404") >= 0 || msg.indexOf("HTTP 410") >= 0) {
-        try {
-          $app.delete(rows[i])
-        } catch {
-          /* expired endpoint */
-        }
-      }
-      recordMailError(err)
-    }
-  }
-  return sent
-}
-
-function notifyPhotographerEvent(event, subject, html, path) {
-  const settings = loadNoticeSettings()
-  if (!settings) return
-  const to = notifyAddress(settings)
-  if (channelOn(settings, event, "email") && to) {
-    try {
-      if (sendMail(to, subject, html)) recordMailOk()
-    } catch (err) {
-      recordMailError(err)
-    }
-  }
-  if (channelOn(settings, event, "mobile")) {
-    try {
-      const n = enqueuePush(
-        subject.replace(" — Ibrahim Lens", ""),
-        "Open Studio",
-        siteUrl() + (path || "/studio"),
-      )
-      if (!n) {
-        recordMailError("Mobile push: no subscribed Studio phone (Allow phone notices on the installed app).")
-      }
-    } catch (err) {
-      recordMailError(err)
-    }
-  }
-}
+// Shared helpers live in ibrahim_utils.js / vapid_push.js / ece.js.
+// PocketBase isolates handlers — always require() inside the callback.
 
 onRecordCreateRequest((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   if (e.auth) {
     e.next()
     return
@@ -265,7 +34,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -278,6 +47,29 @@ onRecordCreateRequest((e) => {
 }, "people")
 
 onRecordCreateRequest((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   if (e.auth) {
     e.next()
     return
@@ -285,7 +77,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -374,6 +166,29 @@ onRecordCreateRequest((e) => {
 }, "bookings")
 
 onRecordCreateRequest((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   if (e.auth) {
     e.next()
     return
@@ -381,7 +196,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -433,28 +248,55 @@ onRecordCreateRequest((e) => {
 }, "form_inquiries")
 
 onRecordAfterCreateSuccess((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   e.next()
-  if (e.auth) return
-  try {
-    const evCol = $app.findCollectionByNameOrId("booking_events")
-    const ev = new Record(evCol)
-    ev.set("booking", e.record.id)
-    ev.set("type", "created")
-    ev.set("actor", "public")
-    ev.set("before", {})
-    ev.set("after", {
-      status: e.record.getString("status"),
-      preferred_at: e.record.getString("preferred_at") || "",
-      studio_notes: "",
-      fee_ngn: 0,
-      amount_paid_ngn: 0,
-      person: e.record.getString("person"),
-    })
-    $app.save(ev)
-  } catch (err) {
-    console.log("booking created event failed: " + err)
+  const fromWebsite = e.record.getString("source") === "website"
+  // Public website bookings must notify even when a Studio session cookie is
+  // present (photographer testing Contact in the same browser).
+  if (!e.auth || fromWebsite) {
+    try {
+      const evCol = $app.findCollectionByNameOrId("booking_events")
+      const ev = new Record(evCol)
+      ev.set("booking", e.record.id)
+      ev.set("type", "created")
+      ev.set("actor", fromWebsite ? "public" : e.auth ? "studio" : "public")
+      ev.set("before", {})
+      ev.set("after", {
+        status: e.record.getString("status"),
+        preferred_at: e.record.getString("preferred_at") || "",
+        studio_notes: "",
+        fee_ngn: 0,
+        amount_paid_ngn: 0,
+        person: e.record.getString("person"),
+      })
+      $app.save(ev)
+    } catch (err) {
+      console.log("booking created event failed: " + err)
+    }
   }
-  if (e.record.getString("source") !== "website") return
+  if (!fromWebsite) return
   const origin = siteUrl()
   notifyPhotographerEvent(
     "booking",
@@ -470,6 +312,29 @@ onRecordAfterCreateSuccess((e) => {
 }, "bookings")
 
 onRecordAfterCreateSuccess((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   e.next()
   // Guest token path must notify even if a Studio session cookie is present
   // (photographer testing the Delivery link in the same browser).
@@ -515,9 +380,32 @@ onRecordAfterCreateSuccess((e) => {
 }, "delivery_feedback")
 
 onRecordAfterCreateSuccess((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   e.next()
-  if (e.auth) return
   if (e.record.getString("kind") !== "contact") return
+  // Public Write must notify even when a Studio session cookie is present.
   try {
   const origin = siteUrl()
   const payload = parseJson(e.record.get("payload"), {})
@@ -566,8 +454,32 @@ onRecordAfterCreateSuccess((e) => {
 }, "form_inquiries")
 
 onRecordAfterCreateSuccess((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   e.next()
   const delivery = e.record
+  ensureDeliveryShortCode(delivery)
   const rawImages = delivery.get("images")
   const ids = []
   if (typeof rawImages === "string" && rawImages) {
@@ -578,7 +490,7 @@ onRecordAfterCreateSuccess((e) => {
       } else {
         ids.push(rawImages)
       }
-    } catch {
+    } catch (_) {
       ids.push(rawImages)
     }
   } else if (rawImages && rawImages.length) {
@@ -668,8 +580,9 @@ onRecordAfterCreateSuccess((e) => {
   if (!clientPrefOn(settings, "client_gallery")) return
   const email = (e.record.getString("client_email") || "").trim()
   if (!email) return
-  const token = e.record.getString("token")
-  const origin = siteUrl()
+  const share = require(`${__hooks}/ibrahim_utils.js`)
+  share.ensureDeliveryShortCode(e.record)
+  const origin = share.siteUrl()
   const name = String(e.record.getString("client_name") || "there")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -684,7 +597,7 @@ onRecordAfterCreateSuccess((e) => {
           "<p>Hi " +
             name +
             ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-          origin + "/g/" + token,
+          origin + share.deliverySharePath(e.record),
           "Open your gallery",
         ),
       )
@@ -697,6 +610,29 @@ onRecordAfterCreateSuccess((e) => {
 }, "deliveries")
 
 onRecordCreateRequest((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   if (e.auth) {
     e.next()
     return
@@ -714,6 +650,29 @@ onRecordCreateRequest((e) => {
 }, "delivery_feedback")
 
 onFileDownloadRequest((e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   if (!e.collection || e.collection.name !== "delivery_files") {
     e.next()
     return
@@ -736,6 +695,29 @@ onFileDownloadRequest((e) => {
 })
 
 cronAdd("ibrahim-prune-delivery-files", "20 3 * * *", () => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   try {
     const expired = $app.findRecordsByFilter(
       "deliveries",
@@ -763,6 +745,29 @@ cronAdd("ibrahim-prune-delivery-files", "20 3 * * *", () => {
 })
 
 cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   const settings = loadNoticeSettings()
   if (!clientPrefOn(settings, "client_expiring") || !smtpReady()) return
   const now = Date.now()
@@ -782,7 +787,6 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
     console.log("ibrahim-client-expiry-mail", err)
     return
   }
-  const origin = siteUrl()
   for (let i = 0; i < rows.length; i++) {
     const d = rows[i]
     if (hasDate(d, "downloaded_at") || hasDate(d, "expiry_mail_sent_at")) continue
@@ -792,8 +796,8 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-    const token = d.getString("token")
     try {
+      const share = require(`${__hooks}/ibrahim_utils.js`)
       if (
         sendMail(
           email,
@@ -803,7 +807,7 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
             "<p>Hi " +
               name +
               ",</p><p>Your gallery expires in about a day. Download your photographs if you have not already.</p>",
-            origin + "/g/" + token,
+            share.siteUrl() + share.deliverySharePath(d),
             "Open your gallery",
           ),
         )
@@ -822,6 +826,18 @@ routerAdd(
   "POST",
   "/api/ibrahim/resend-gallery",
   (e) => {
+    const U = require(`${__hooks}/ibrahim_utils.js`)
+    const requestInfo = U.requestInfo
+    const loadNoticeSettings = U.loadNoticeSettings
+    const recordMailError = U.recordMailError
+    const recordMailOk = U.recordMailOk
+    const smtpReady = U.smtpReady
+    const clientPrefOn = U.clientPrefOn
+    const siteUrl = U.siteUrl
+    const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+    const deliverySharePath = U.deliverySharePath
+    const brandedMail = U.brandedMail
+    const sendMail = U.sendMail
     const info = requestInfo(e)
     const body = info.body || {}
     const query = info.query || {}
@@ -843,7 +859,7 @@ routerAdd(
       throw new BadRequestError("Client gallery email is turned off in Settings → Notifications.")
     }
     if (!smtpReady()) throw new BadRequestError("Outbound mail is not configured.")
-    const token = delivery.getString("token")
+    ensureDeliveryShortCode(delivery)
     const origin = siteUrl()
     const name = String(delivery.getString("client_name") || "there")
       .replace(/&/g, "&amp;")
@@ -859,7 +875,7 @@ routerAdd(
             "<p>Hi " +
               name +
               ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-            origin + "/g/" + token,
+            origin + deliverySharePath(delivery),
             "Open your gallery",
           ),
         )
@@ -880,6 +896,29 @@ routerAdd(
   "POST",
   "/api/ibrahim/test-mail",
   (e) => {
+    const U = require(`${__hooks}/ibrahim_utils.js`)
+    const requestInfo = U.requestInfo
+    const clientIp = U.clientIp
+    const guestRateLimit = U.guestRateLimit
+    const loadNoticeSettings = U.loadNoticeSettings
+    const recordMailError = U.recordMailError
+    const recordMailOk = U.recordMailOk
+    const smtpReady = U.smtpReady
+    const clientPrefOn = U.clientPrefOn
+    const siteUrl = U.siteUrl
+    const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+    const deliverySharePath = U.deliverySharePath
+    const escapeOg = U.escapeOg
+    const photographerRecord = U.photographerRecord
+    const parseJson = U.parseJson
+    const channelOn = U.channelOn
+    const brandedMail = U.brandedMail
+    const hasDate = U.hasDate
+    const sendMail = U.sendMail
+    const notifyAddress = U.notifyAddress
+    const enqueuePush = U.enqueuePush
+    const notifyPhotographerEvent = U.notifyPhotographerEvent
+    const vapidPublicKey = U.vapidPublicKey
     const settings = loadNoticeSettings()
     if (!settings) throw new BadRequestError("Notification settings are missing.")
     const to = notifyAddress(settings)
@@ -927,6 +966,29 @@ routerAdd(
   "GET",
   "/api/ibrahim/vapid-public",
   (e) => {
+    const U = require(`${__hooks}/ibrahim_utils.js`)
+    const requestInfo = U.requestInfo
+    const clientIp = U.clientIp
+    const guestRateLimit = U.guestRateLimit
+    const loadNoticeSettings = U.loadNoticeSettings
+    const recordMailError = U.recordMailError
+    const recordMailOk = U.recordMailOk
+    const smtpReady = U.smtpReady
+    const clientPrefOn = U.clientPrefOn
+    const siteUrl = U.siteUrl
+    const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+    const deliverySharePath = U.deliverySharePath
+    const escapeOg = U.escapeOg
+    const photographerRecord = U.photographerRecord
+    const parseJson = U.parseJson
+    const channelOn = U.channelOn
+    const brandedMail = U.brandedMail
+    const hasDate = U.hasDate
+    const sendMail = U.sendMail
+    const notifyAddress = U.notifyAddress
+    const enqueuePush = U.enqueuePush
+    const notifyPhotographerEvent = U.notifyPhotographerEvent
+    const vapidPublicKey = U.vapidPublicKey
     return e.json(200, { publicKey: vapidPublicKey() })
   },
   $apis.requireAuth(),
@@ -936,28 +998,71 @@ routerAdd(
   "GET",
   "/api/ibrahim/mail-health",
   (e) => {
+    const U = require(`${__hooks}/ibrahim_utils.js`)
+    const requestInfo = U.requestInfo
+    const clientIp = U.clientIp
+    const guestRateLimit = U.guestRateLimit
+    const loadNoticeSettings = U.loadNoticeSettings
+    const recordMailError = U.recordMailError
+    const recordMailOk = U.recordMailOk
+    const smtpReady = U.smtpReady
+    const clientPrefOn = U.clientPrefOn
+    const siteUrl = U.siteUrl
+    const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+    const deliverySharePath = U.deliverySharePath
+    const escapeOg = U.escapeOg
+    const photographerRecord = U.photographerRecord
+    const parseJson = U.parseJson
+    const channelOn = U.channelOn
+    const brandedMail = U.brandedMail
+    const hasDate = U.hasDate
+    const sendMail = U.sendMail
+    const notifyAddress = U.notifyAddress
+    const enqueuePush = U.enqueuePush
+    const notifyPhotographerEvent = U.notifyPhotographerEvent
+    const vapidPublicKey = U.vapidPublicKey
     return e.json(200, { smtp: smtpReady() })
   },
   $apis.requireAuth(),
 )
 
-function escapeOg(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
-
 /** Crawler-facing HTML for Delivery share links (messengers do not run the SPA). */
+
 routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
-  const token = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
-  if (!token) throw new NotFoundError("Not found.")
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
+  const code = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
+  if (!code) throw new NotFoundError("Not found.")
   let delivery
   try {
-    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:token}", { token: token })
+    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:code}", { code: code })
   } catch (_) {
-    throw new NotFoundError("Not found.")
+    try {
+      delivery = $app.findFirstRecordByFilter("deliveries", "short_code = {:code}", { code: code })
+    } catch (_) {
+      throw new NotFoundError("Not found.")
+    }
   }
   if (delivery.getBool("revoked")) throw new NotFoundError("Not found.")
   const exp = delivery.getDateTime("expires_at")
@@ -967,7 +1072,8 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
   const clientName = String(delivery.getString("client_name") || "Client").trim() || "Client"
   const title = "Gallery for " + clientName
   const description = "Private photographs from Ibrahim Lens."
-  const pageUrl = origin + "/g/" + token
+  const pageUrl = origin + deliverySharePath(delivery)
+  const fileToken = delivery.getString("token")
   let imageUrl = origin + "/og-default.jpg"
   try {
     const files = $app.findRecordsByFilter(
@@ -985,7 +1091,7 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
         imageUrl =
           origin +
           "/api/ibrahim/delivery-file/" +
-          encodeURIComponent(token) +
+          encodeURIComponent(fileToken) +
           "/" +
           encodeURIComponent(row.id) +
           "/" +
@@ -995,47 +1101,71 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
     }
   } catch (_) {}
 
+  const esc = escapeOg
   const html =
     "<!doctype html><html lang=\"en\"><head>" +
     "<meta charset=\"utf-8\"/>" +
     "<title>" +
-    escapeOg(title) +
+    esc(title) +
     " · Ibrahim Lens</title>" +
     "<meta property=\"og:type\" content=\"website\"/>" +
     "<meta property=\"og:site_name\" content=\"Ibrahim Lens\"/>" +
     "<meta property=\"og:title\" content=\"" +
-    escapeOg(title) +
+    esc(title) +
     "\"/>" +
     "<meta property=\"og:description\" content=\"" +
-    escapeOg(description) +
+    esc(description) +
     "\"/>" +
     "<meta property=\"og:url\" content=\"" +
-    escapeOg(pageUrl) +
+    esc(pageUrl) +
     "\"/>" +
     "<meta property=\"og:image\" content=\"" +
-    escapeOg(imageUrl) +
+    esc(imageUrl) +
     "\"/>" +
     "<meta name=\"twitter:card\" content=\"summary_large_image\"/>" +
     "<meta name=\"twitter:title\" content=\"" +
-    escapeOg(title) +
+    esc(title) +
     "\"/>" +
     "<meta name=\"twitter:description\" content=\"" +
-    escapeOg(description) +
+    esc(description) +
     "\"/>" +
     "<meta name=\"twitter:image\" content=\"" +
-    escapeOg(imageUrl) +
+    esc(imageUrl) +
     "\"/>" +
     "<link rel=\"canonical\" href=\"" +
-    escapeOg(pageUrl) +
+    esc(pageUrl) +
     "\"/>" +
     "</head><body><p>" +
-    escapeOg(title) +
+    esc(title) +
     "</p></body></html>"
 
   return e.html(200, html)
 })
 
 routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   const token = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
   const id = String((e.request && e.request.pathValue && e.request.pathValue("id")) || "")
   const filename = String((e.request && e.request.pathValue && e.request.pathValue("filename")) || "")
@@ -1056,55 +1186,198 @@ routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
   let thumb = ""
   let download = false
   try {
-    if (e.request && e.request.formValue) {
-      thumb = String(e.request.formValue("thumb") || "")
-      download = String(e.request.formValue("dl") || "") === "1"
-    }
     if (e.request && e.request.url && e.request.url.query) {
       const query = e.request.url.query()
-      if (!thumb) thumb = String(query.get("thumb") || "")
-      if (!download) download = String(query.get("dl") || "") === "1"
+      thumb = String(query.get("thumb") || "")
+      download = String(query.get("dl") || "") === "1"
     }
-  } catch (_) {}
+  } catch (err) {
+    console.log("delivery-file query parse: " + err)
+  }
   const allowed = { "200x200": 1, "400x400": 1, "800x800": 1, "1200x0": 1, "1600x900": 1 }
-  const dataDir = $app.dataDir()
-  const baseDir = $filepath.join(dataDir, "storage", row.baseFilesPath())
-  let dir = baseDir
-  let name = stored
+  // Stamp download only after a successful serve (below).
+
+  const candidates = []
+  const deliveryBase = row.baseFilesPath()
   if (thumb && allowed[thumb]) {
-    const thumbDir = $filepath.join(baseDir, "thumbs_" + stored)
-    const thumbName = thumb + "_" + stored
+    candidates.push({
+      key: deliveryBase + "/thumbs_" + stored + "/" + thumb + "_" + stored,
+      name: thumb + "_" + stored,
+    })
+  }
+  candidates.push({ key: deliveryBase + "/" + stored, name: stored })
+
+  const mediaId = String(row.getString("media") || "")
+  if (mediaId) {
     try {
-      $os.dirFS(thumbDir).stat(thumbName)
-      dir = thumbDir
-      name = thumbName
-    } catch (_) {}
-  } else if (download && !hasDate(delivery, "downloaded_at")) {
-    try {
-      delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
-      $app.save(delivery)
-      const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
-      const inbox = new Record(inboxCol)
-      inbox.set("kind", "delivery_event")
-      inbox.set("payload", {
-        inbox_read: false,
-        event: "download",
-        delivery_id: delivery.id,
-        client_name: delivery.getString("client_name"),
-        media_id: row.getString("media") || row.id,
-      })
-      $app.save(inbox)
+      const media = $app.findRecordById("media", mediaId)
+      const mediaFile = String(media.get("file") || "")
+      if (mediaFile) {
+        const mediaBase = media.baseFilesPath()
+        if (thumb && allowed[thumb]) {
+          candidates.push({
+            key: mediaBase + "/thumbs_" + mediaFile + "/" + thumb + "_" + mediaFile,
+            name: thumb + "_" + mediaFile,
+          })
+        }
+        candidates.push({ key: mediaBase + "/" + mediaFile, name: mediaFile })
+      }
     } catch (err) {
-      console.log("delivery download stamp failed: " + err)
+      console.log("delivery-file media lookup failed: " + err)
     }
   }
+
   try {
     e.response.header().set("Cache-Control", "private, no-store")
   } catch (_) {}
-  return e.fileFS($os.dirFS(dir), name)
+
+  const dataDir = $app.dataDir()
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i]
+    const abs = $filepath.join(dataDir, "storage", cand.key)
+    const dir = $filepath.dir(abs)
+    const base = $filepath.base(abs)
+    try {
+      $os.dirFS(dir).stat(base)
+      if (download && !thumb) {
+        try {
+          e.response.header().set(
+            "Content-Disposition",
+            'attachment; filename="' + stored.replace(/"/g, "") + '"',
+          )
+        } catch (_) {}
+      }
+      if (download && !thumb) {
+        let alreadyDownloaded = false
+        try {
+          const dt = delivery.getDateTime("downloaded_at")
+          alreadyDownloaded = !!(dt && dt.time().unixMilli() > 100000)
+        } catch (_) {}
+        if (!alreadyDownloaded) {
+          try {
+            delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
+            $app.save(delivery)
+            const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
+            const inbox = new Record(inboxCol)
+            inbox.set("kind", "delivery_event")
+            inbox.set("payload", {
+              inbox_read: false,
+              event: "download",
+              delivery_id: delivery.id,
+              client_name: delivery.getString("client_name"),
+              media_id: row.getString("media") || row.id,
+            })
+            $app.save(inbox)
+          } catch (err) {
+            console.log("delivery download stamp failed: " + err)
+          }
+        }
+      }
+      return e.fileFS($os.dirFS(dir), base)
+    } catch (_) {}
+  }
+
+  let fsys
+  try {
+    fsys = $app.newFilesystem()
+  } catch (err) {
+    console.log("delivery-file newFilesystem failed: " + err)
+    throw new ApiError(500, "Storage unavailable.", {})
+  }
+  let lastErr = ""
+  try {
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i]
+      let reader
+      try {
+        try {
+          reader = fsys.getReader(cand.key)
+        } catch (_) {
+          reader = fsys.getFile(cand.key)
+        }
+        const bytes = toString(reader, 80 * 1024 * 1024)
+        try {
+          reader.close()
+        } catch (_) {}
+        reader = null
+        if (bytes == null || bytes === "") {
+          lastErr = "empty " + cand.key
+          continue
+        }
+        let contentType = "image/jpeg"
+        const lower = String(cand.name || "").toLowerCase()
+        if (lower.indexOf(".png") >= 0) contentType = "image/png"
+        else if (lower.indexOf(".webp") >= 0) contentType = "image/webp"
+        else if (lower.indexOf(".gif") >= 0) contentType = "image/gif"
+        if (download && !thumb) {
+          let alreadyDownloaded = false
+          try {
+            const dt = delivery.getDateTime("downloaded_at")
+            alreadyDownloaded = !!(dt && dt.time().unixMilli() > 100000)
+          } catch (_) {}
+          if (!alreadyDownloaded) {
+            try {
+              delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
+              $app.save(delivery)
+              const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
+              const inbox = new Record(inboxCol)
+              inbox.set("kind", "delivery_event")
+              inbox.set("payload", {
+                inbox_read: false,
+                event: "download",
+                delivery_id: delivery.id,
+                client_name: delivery.getString("client_name"),
+                media_id: row.getString("media") || row.id,
+              })
+              $app.save(inbox)
+            } catch (err) {
+              console.log("delivery download stamp failed: " + err)
+            }
+          }
+        }
+        // SPA downloads use fetch+blob; attachment disposition is optional.
+        return e.blob(200, contentType, bytes)
+      } catch (err) {
+        lastErr = cand.key + ": " + err
+        console.log("delivery-file candidate failed: " + lastErr)
+        try {
+          if (reader) reader.close()
+        } catch (_) {}
+      }
+    }
+  } finally {
+    try {
+      fsys.close()
+    } catch (_) {}
+  }
+  console.log("delivery-file not found last=" + lastErr)
+  throw new NotFoundError("File not found.")
 })
 
 routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const loadNoticeSettings = U.loadNoticeSettings
+  const recordMailError = U.recordMailError
+  const recordMailOk = U.recordMailOk
+  const smtpReady = U.smtpReady
+  const clientPrefOn = U.clientPrefOn
+  const siteUrl = U.siteUrl
+  const ensureDeliveryShortCode = U.ensureDeliveryShortCode
+  const deliverySharePath = U.deliverySharePath
+  const escapeOg = U.escapeOg
+  const photographerRecord = U.photographerRecord
+  const parseJson = U.parseJson
+  const channelOn = U.channelOn
+  const brandedMail = U.brandedMail
+  const hasDate = U.hasDate
+  const sendMail = U.sendMail
+  const notifyAddress = U.notifyAddress
+  const enqueuePush = U.enqueuePush
+  const notifyPhotographerEvent = U.notifyPhotographerEvent
+  const vapidPublicKey = U.vapidPublicKey
   const info = requestInfo(e)
   const ip = clientIp(e, info)
   if (!guestRateLimit("push:ip:" + ip, 30, 60 * 1000)) {
@@ -1120,7 +1393,7 @@ routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
   let row
   try {
     row = $app.findFirstRecordByFilter("push_subscriptions", "device_secret = {:s}", { s: secret })
-  } catch {
+  } catch (_) {
     throw new NotFoundError()
   }
   const pending = parseJson(row.get("pending"), null)

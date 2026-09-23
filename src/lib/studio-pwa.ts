@@ -269,6 +269,9 @@ export async function subscribeStudioPush() {
   await registerStudioWorker()
   const reg = await navigator.serviceWorker.ready
   const keyBytes = urlBase64ToUint8Array(key)
+  if (keyBytes.length !== 65 || keyBytes[0] !== 0x04) {
+    throw new Error('Phone notice key is invalid. Ask for a VAPID key check on the server.')
+  }
   let sub = await reg.pushManager.getSubscription()
   if (sub && !sameApplicationServerKey(sub, keyBytes)) {
     await sub.unsubscribe()

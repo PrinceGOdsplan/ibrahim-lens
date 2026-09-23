@@ -3,6 +3,7 @@ import { pb } from '@/lib/pocketbase'
 import { isGuestHiddenCreate, pbErrorMessage } from '@/lib/pb-error'
 import { deliveriesForBooking } from '@/lib/clients'
 import { formatNgn, normalizeNgPhone, type NgPhone } from '@/lib/phone'
+import { listCollected, listPage, STUDIO_DASHBOARD_CAP } from '@/lib/list-pages'
 
 export type BookingStatus =
   | 'needs_contact'
@@ -172,7 +173,11 @@ export function applyReceivedPayment(b: Pick<BookingRecord, 'fee_ngn' | 'amount_
 export { formatNgn }
 
 export async function listPeople() {
-  return pb.collection('people').getFullList<PersonRecord>({ sort: 'name' })
+  return listCollected<PersonRecord>('people', { sort: 'name' })
+}
+
+export async function listPeoplePage(page: number, pageSize = 100) {
+  return listPage<PersonRecord>('people', page, pageSize, { sort: 'name' })
 }
 
 export async function findPersonByPhoneDigits(digits: string) {
@@ -277,14 +282,21 @@ function snapshot(b: BookingRecord): Record<string, unknown> {
 }
 
 export async function listBookings() {
-  return pb.collection('bookings').getFullList<BookingRecord>({
+  return listCollected<BookingRecord>('bookings', {
+    sort: '-created',
+    expand: 'person',
+  })
+}
+
+export async function listBookingsPage(page: number, pageSize = 100) {
+  return listPage<BookingRecord>('bookings', page, pageSize, {
     sort: '-created',
     expand: 'person',
   })
 }
 
 export async function listBookingsForPerson(personId: string) {
-  return pb.collection('bookings').getFullList<BookingRecord>({
+  return listCollected<BookingRecord>('bookings', {
     filter: `person="${personId}"`,
     sort: '-created',
     expand: 'person',
@@ -292,7 +304,7 @@ export async function listBookingsForPerson(personId: string) {
 }
 
 export async function listBookingEvents(bookingId: string) {
-  return pb.collection('booking_events').getFullList<BookingEvent>({
+  return listCollected<BookingEvent>('booking_events', {
     filter: `booking="${bookingId}"`,
     sort: '-created',
   })
@@ -572,10 +584,14 @@ export function deskFinance(
 
 export async function listMoneyChangedEvents() {
   try {
-    return await pb.collection('booking_events').getFullList<BookingEvent>({
-      filter: 'type="money_changed"',
-      sort: '-created',
-    })
+    return await listCollected<BookingEvent>(
+      'booking_events',
+      {
+        filter: 'type="money_changed"',
+        sort: '-created',
+      },
+      { maxItems: STUDIO_DASHBOARD_CAP },
+    )
   } catch {
     return [] as BookingEvent[]
   }

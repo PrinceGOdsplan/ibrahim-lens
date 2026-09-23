@@ -2,9 +2,7 @@ import {
   type DeliveryRecord,
   type FormInquiry,
   isDeliveryActive,
-  listDeliveries,
   listFeedback,
-  listInquiries,
 } from '@/lib/clients'
 import {
   type BookingEvent,
@@ -16,7 +14,6 @@ import {
   hasUnpaidBalance,
   hubBookings,
   inPeriod,
-  listBookings,
   listMoneyChangedEvents,
   outstandingNgn,
   parseDeskPeriod,
@@ -25,6 +22,7 @@ import {
 } from '@/lib/bookings'
 import { formatDateTime } from '@/lib/format'
 import { listMediaPage } from '@/lib/library'
+import { listCollected, STUDIO_DASHBOARD_CAP } from '@/lib/list-pages'
 import { pb } from '@/lib/pocketbase'
 import { settleAll } from '@/lib/useAsyncData'
 
@@ -380,10 +378,17 @@ function buildNeedsYou(
 
 export async function loadDashboardPulse(period: DeskPeriod): Promise<DashboardPulse> {
   const { values, failed } = await settleAll({
-    Bookings: listBookings,
-    Deliveries: listDeliveries,
+    Bookings: () =>
+      listCollected<BookingRecord>(
+        'bookings',
+        { sort: '-created', expand: 'person' },
+        { maxItems: STUDIO_DASHBOARD_CAP },
+      ),
+    Deliveries: () =>
+      listCollected<DeliveryRecord>('deliveries', { sort: '-created' }, { maxItems: STUDIO_DASHBOARD_CAP }),
     Feedback: listFeedback,
-    Inbox: listInquiries,
+    Inbox: () =>
+      listCollected<FormInquiry>('form_inquiries', { sort: '-created' }, { maxItems: STUDIO_DASHBOARD_CAP }),
     Frames: () =>
       listMediaPage({ page: 1, vault: 'gallery', sort: 'date', perPage: FRAMES_PER_PAGE }),
     MoneyEvents: listMoneyChangedEvents,
