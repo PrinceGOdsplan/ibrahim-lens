@@ -3,7 +3,7 @@
 function requestInfo(e) {
   try {
     return e.requestInfo()
-  } catch {
+  } catch (_) {
     return { query: {}, body: {} }
   }
 }
@@ -60,7 +60,7 @@ function guestRateLimit(bucket, max, windowMs) {
 function loadNoticeSettings() {
   try {
     return $app.findFirstRecordByFilter("notification_settings", 'key = "notifications"')
-  } catch {
+  } catch (_) {
     return null
   }
 }
@@ -83,7 +83,7 @@ function recordMailOk() {
 function smtpReady() {
   try {
     return Boolean($app.settings().smtp && $app.settings().smtp.enabled)
-  } catch {
+  } catch (_) {
     return false
   }
 }
@@ -93,7 +93,7 @@ function clientPrefOn(settings, field) {
   if (!settings) return true
   try {
     return settings.get(field) !== false
-  } catch {
+  } catch (_) {
     return true
   }
 }
@@ -104,16 +104,48 @@ function siteUrl() {
   try {
     const appURL = ($app.settings().meta.appURL || "").replace(/\/$/, "")
     if (appURL) return appURL
-  } catch {
+  } catch (_) {
     // fall through
   }
   return "https://ibrahimlens.com.ng"
 }
 
+function deliveryShortCode() {
+  try {
+    return $security.randomStringWithAlphabet(
+      8,
+      "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",
+    )
+  } catch (_) {
+    const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    let out = ""
+    for (let i = 0; i < 8; i++) out += alphabet.charAt(Math.floor(Math.random() * alphabet.length))
+    return out
+  }
+}
+
+function ensureDeliveryShortCode(record) {
+  if ((record.getString("short_code") || "").trim()) return record
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      record.set("short_code", deliveryShortCode())
+      $app.save(record)
+      return record
+    } catch (_) {}
+  }
+  return record
+}
+
+function deliverySharePath(record) {
+  const short = (record.getString("short_code") || "").trim()
+  if (short) return "/g/" + short
+  return "/g/" + record.getString("token")
+}
+
 function photographerRecord() {
   try {
     return $app.findFirstRecordByFilter("users", "email != ''")
-  } catch {
+  } catch (_) {
     return null
   }
 }
@@ -123,7 +155,7 @@ function parseJson(raw, fallback) {
   if (typeof raw === "object") return raw
   try {
     return JSON.parse(String(raw))
-  } catch {
+  } catch (_) {
     return fallback
   }
 }
@@ -167,7 +199,7 @@ function hasDate(record, field) {
   try {
     const dt = record.getDateTime(field)
     return dt && dt.time().unixMilli() > 100000
-  } catch {
+  } catch (_) {
     return false
   }
 }
@@ -197,7 +229,7 @@ function enqueuePush(title, body, url) {
   let rows = []
   try {
     rows = $app.findRecordsByFilter("push_subscriptions", "id != ''", "-created", 20, 0)
-  } catch {
+  } catch (_) {
     return 0
   }
   const pending = { title: title, body: body, url: url }
@@ -220,7 +252,7 @@ function enqueuePush(title, body, url) {
       if (msg.indexOf("HTTP 404") >= 0 || msg.indexOf("HTTP 410") >= 0) {
         try {
           $app.delete(rows[i])
-        } catch {
+        } catch (_) {
           /* expired endpoint */
         }
       }
@@ -265,7 +297,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -285,7 +317,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -381,7 +413,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -434,27 +466,31 @@ onRecordCreateRequest((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   e.next()
-  if (e.auth) return
-  try {
-    const evCol = $app.findCollectionByNameOrId("booking_events")
-    const ev = new Record(evCol)
-    ev.set("booking", e.record.id)
-    ev.set("type", "created")
-    ev.set("actor", "public")
-    ev.set("before", {})
-    ev.set("after", {
-      status: e.record.getString("status"),
-      preferred_at: e.record.getString("preferred_at") || "",
-      studio_notes: "",
-      fee_ngn: 0,
-      amount_paid_ngn: 0,
-      person: e.record.getString("person"),
-    })
-    $app.save(ev)
-  } catch (err) {
-    console.log("booking created event failed: " + err)
+  const fromWebsite = e.record.getString("source") === "website"
+  // Public website bookings must notify even when a Studio session cookie is
+  // present (photographer testing Contact in the same browser).
+  if (!e.auth || fromWebsite) {
+    try {
+      const evCol = $app.findCollectionByNameOrId("booking_events")
+      const ev = new Record(evCol)
+      ev.set("booking", e.record.id)
+      ev.set("type", "created")
+      ev.set("actor", fromWebsite ? "public" : e.auth ? "studio" : "public")
+      ev.set("before", {})
+      ev.set("after", {
+        status: e.record.getString("status"),
+        preferred_at: e.record.getString("preferred_at") || "",
+        studio_notes: "",
+        fee_ngn: 0,
+        amount_paid_ngn: 0,
+        person: e.record.getString("person"),
+      })
+      $app.save(ev)
+    } catch (err) {
+      console.log("booking created event failed: " + err)
+    }
   }
-  if (e.record.getString("source") !== "website") return
+  if (!fromWebsite) return
   const origin = siteUrl()
   notifyPhotographerEvent(
     "booking",
@@ -516,8 +552,8 @@ onRecordAfterCreateSuccess((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   e.next()
-  if (e.auth) return
   if (e.record.getString("kind") !== "contact") return
+  // Public Write must notify even when a Studio session cookie is present.
   try {
   const origin = siteUrl()
   const payload = parseJson(e.record.get("payload"), {})
@@ -568,6 +604,7 @@ onRecordAfterCreateSuccess((e) => {
 onRecordAfterCreateSuccess((e) => {
   e.next()
   const delivery = e.record
+  ensureDeliveryShortCode(delivery)
   const rawImages = delivery.get("images")
   const ids = []
   if (typeof rawImages === "string" && rawImages) {
@@ -578,7 +615,7 @@ onRecordAfterCreateSuccess((e) => {
       } else {
         ids.push(rawImages)
       }
-    } catch {
+    } catch (_) {
       ids.push(rawImages)
     }
   } else if (rawImages && rawImages.length) {
@@ -668,8 +705,9 @@ onRecordAfterCreateSuccess((e) => {
   if (!clientPrefOn(settings, "client_gallery")) return
   const email = (e.record.getString("client_email") || "").trim()
   if (!email) return
-  const token = e.record.getString("token")
-  const origin = siteUrl()
+  const share = require(`${__hooks}/ibrahim_utils.js`)
+  share.ensureDeliveryShortCode(e.record)
+  const origin = share.siteUrl()
   const name = String(e.record.getString("client_name") || "there")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -684,7 +722,7 @@ onRecordAfterCreateSuccess((e) => {
           "<p>Hi " +
             name +
             ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-          origin + "/g/" + token,
+          origin + share.deliverySharePath(e.record),
           "Open your gallery",
         ),
       )
@@ -782,7 +820,6 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
     console.log("ibrahim-client-expiry-mail", err)
     return
   }
-  const origin = siteUrl()
   for (let i = 0; i < rows.length; i++) {
     const d = rows[i]
     if (hasDate(d, "downloaded_at") || hasDate(d, "expiry_mail_sent_at")) continue
@@ -792,8 +829,8 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-    const token = d.getString("token")
     try {
+      const share = require(`${__hooks}/ibrahim_utils.js`)
       if (
         sendMail(
           email,
@@ -803,7 +840,7 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
             "<p>Hi " +
               name +
               ",</p><p>Your gallery expires in about a day. Download your photographs if you have not already.</p>",
-            origin + "/g/" + token,
+            share.siteUrl() + share.deliverySharePath(d),
             "Open your gallery",
           ),
         )
@@ -822,6 +859,7 @@ routerAdd(
   "POST",
   "/api/ibrahim/resend-gallery",
   (e) => {
+    const share = require(`${__hooks}/ibrahim_utils.js`)
     const info = requestInfo(e)
     const body = info.body || {}
     const query = info.query || {}
@@ -843,8 +881,8 @@ routerAdd(
       throw new BadRequestError("Client gallery email is turned off in Settings → Notifications.")
     }
     if (!smtpReady()) throw new BadRequestError("Outbound mail is not configured.")
-    const token = delivery.getString("token")
-    const origin = siteUrl()
+    share.ensureDeliveryShortCode(delivery)
+    const origin = share.siteUrl()
     const name = String(delivery.getString("client_name") || "there")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
@@ -859,7 +897,7 @@ routerAdd(
             "<p>Hi " +
               name +
               ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-            origin + "/g/" + token,
+            origin + share.deliverySharePath(delivery),
             "Open your gallery",
           ),
         )
@@ -951,23 +989,30 @@ function escapeOg(value) {
 
 /** Crawler-facing HTML for Delivery share links (messengers do not run the SPA). */
 routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
-  const token = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
-  if (!token) throw new NotFoundError("Not found.")
+  // Handlers run in an isolated VM — load shared helpers via require (not top-level funcs).
+  const share = require(`${__hooks}/ibrahim_utils.js`)
+  const code = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
+  if (!code) throw new NotFoundError("Not found.")
   let delivery
   try {
-    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:token}", { token: token })
+    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:code}", { code: code })
   } catch (_) {
-    throw new NotFoundError("Not found.")
+    try {
+      delivery = $app.findFirstRecordByFilter("deliveries", "short_code = {:code}", { code: code })
+    } catch (_) {
+      throw new NotFoundError("Not found.")
+    }
   }
   if (delivery.getBool("revoked")) throw new NotFoundError("Not found.")
   const exp = delivery.getDateTime("expires_at")
   if (exp.time().unixMilli() < Date.now()) throw new NotFoundError("Not found.")
 
-  const origin = siteUrl()
+  const origin = share.siteUrl()
   const clientName = String(delivery.getString("client_name") || "Client").trim() || "Client"
   const title = "Gallery for " + clientName
   const description = "Private photographs from Ibrahim Lens."
-  const pageUrl = origin + "/g/" + token
+  const pageUrl = origin + share.deliverySharePath(delivery)
+  const fileToken = delivery.getString("token")
   let imageUrl = origin + "/og-default.jpg"
   try {
     const files = $app.findRecordsByFilter(
@@ -985,7 +1030,7 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
         imageUrl =
           origin +
           "/api/ibrahim/delivery-file/" +
-          encodeURIComponent(token) +
+          encodeURIComponent(fileToken) +
           "/" +
           encodeURIComponent(row.id) +
           "/" +
@@ -995,41 +1040,42 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
     }
   } catch (_) {}
 
+  const esc = share.escapeOg
   const html =
     "<!doctype html><html lang=\"en\"><head>" +
     "<meta charset=\"utf-8\"/>" +
     "<title>" +
-    escapeOg(title) +
+    esc(title) +
     " · Ibrahim Lens</title>" +
     "<meta property=\"og:type\" content=\"website\"/>" +
     "<meta property=\"og:site_name\" content=\"Ibrahim Lens\"/>" +
     "<meta property=\"og:title\" content=\"" +
-    escapeOg(title) +
+    esc(title) +
     "\"/>" +
     "<meta property=\"og:description\" content=\"" +
-    escapeOg(description) +
+    esc(description) +
     "\"/>" +
     "<meta property=\"og:url\" content=\"" +
-    escapeOg(pageUrl) +
+    esc(pageUrl) +
     "\"/>" +
     "<meta property=\"og:image\" content=\"" +
-    escapeOg(imageUrl) +
+    esc(imageUrl) +
     "\"/>" +
     "<meta name=\"twitter:card\" content=\"summary_large_image\"/>" +
     "<meta name=\"twitter:title\" content=\"" +
-    escapeOg(title) +
+    esc(title) +
     "\"/>" +
     "<meta name=\"twitter:description\" content=\"" +
-    escapeOg(description) +
+    esc(description) +
     "\"/>" +
     "<meta name=\"twitter:image\" content=\"" +
-    escapeOg(imageUrl) +
+    esc(imageUrl) +
     "\"/>" +
     "<link rel=\"canonical\" href=\"" +
-    escapeOg(pageUrl) +
+    esc(pageUrl) +
     "\"/>" +
     "</head><body><p>" +
-    escapeOg(title) +
+    esc(title) +
     "</p></body></html>"
 
   return e.html(200, html)
@@ -1056,52 +1102,172 @@ routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
   let thumb = ""
   let download = false
   try {
-    if (e.request && e.request.formValue) {
-      thumb = String(e.request.formValue("thumb") || "")
-      download = String(e.request.formValue("dl") || "") === "1"
-    }
     if (e.request && e.request.url && e.request.url.query) {
       const query = e.request.url.query()
-      if (!thumb) thumb = String(query.get("thumb") || "")
-      if (!download) download = String(query.get("dl") || "") === "1"
+      thumb = String(query.get("thumb") || "")
+      download = String(query.get("dl") || "") === "1"
     }
-  } catch (_) {}
+  } catch (err) {
+    console.log("delivery-file query parse: " + err)
+  }
   const allowed = { "200x200": 1, "400x400": 1, "800x800": 1, "1200x0": 1, "1600x900": 1 }
-  const dataDir = $app.dataDir()
-  const baseDir = $filepath.join(dataDir, "storage", row.baseFilesPath())
-  let dir = baseDir
-  let name = stored
+  // Stamp download only after a successful serve (below).
+
+  const candidates = []
+  const deliveryBase = row.baseFilesPath()
   if (thumb && allowed[thumb]) {
-    const thumbDir = $filepath.join(baseDir, "thumbs_" + stored)
-    const thumbName = thumb + "_" + stored
+    candidates.push({
+      key: deliveryBase + "/thumbs_" + stored + "/" + thumb + "_" + stored,
+      name: thumb + "_" + stored,
+    })
+  }
+  candidates.push({ key: deliveryBase + "/" + stored, name: stored })
+
+  const mediaId = String(row.getString("media") || "")
+  if (mediaId) {
     try {
-      $os.dirFS(thumbDir).stat(thumbName)
-      dir = thumbDir
-      name = thumbName
-    } catch (_) {}
-  } else if (download && !hasDate(delivery, "downloaded_at")) {
-    try {
-      delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
-      $app.save(delivery)
-      const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
-      const inbox = new Record(inboxCol)
-      inbox.set("kind", "delivery_event")
-      inbox.set("payload", {
-        inbox_read: false,
-        event: "download",
-        delivery_id: delivery.id,
-        client_name: delivery.getString("client_name"),
-        media_id: row.getString("media") || row.id,
-      })
-      $app.save(inbox)
+      const media = $app.findRecordById("media", mediaId)
+      const mediaFile = String(media.get("file") || "")
+      if (mediaFile) {
+        const mediaBase = media.baseFilesPath()
+        if (thumb && allowed[thumb]) {
+          candidates.push({
+            key: mediaBase + "/thumbs_" + mediaFile + "/" + thumb + "_" + mediaFile,
+            name: thumb + "_" + mediaFile,
+          })
+        }
+        candidates.push({ key: mediaBase + "/" + mediaFile, name: mediaFile })
+      }
     } catch (err) {
-      console.log("delivery download stamp failed: " + err)
+      console.log("delivery-file media lookup failed: " + err)
     }
   }
+
   try {
     e.response.header().set("Cache-Control", "private, no-store")
   } catch (_) {}
-  return e.fileFS($os.dirFS(dir), name)
+
+  const dataDir = $app.dataDir()
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i]
+    const abs = $filepath.join(dataDir, "storage", cand.key)
+    const dir = $filepath.dir(abs)
+    const base = $filepath.base(abs)
+    try {
+      $os.dirFS(dir).stat(base)
+      if (download && !thumb) {
+        try {
+          e.response.header().set(
+            "Content-Disposition",
+            'attachment; filename="' + stored.replace(/"/g, "") + '"',
+          )
+        } catch (_) {}
+      }
+      if (download && !thumb) {
+        let alreadyDownloaded = false
+        try {
+          const dt = delivery.getDateTime("downloaded_at")
+          alreadyDownloaded = !!(dt && dt.time().unixMilli() > 100000)
+        } catch (_) {}
+        if (!alreadyDownloaded) {
+          try {
+            delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
+            $app.save(delivery)
+            const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
+            const inbox = new Record(inboxCol)
+            inbox.set("kind", "delivery_event")
+            inbox.set("payload", {
+              inbox_read: false,
+              event: "download",
+              delivery_id: delivery.id,
+              client_name: delivery.getString("client_name"),
+              media_id: row.getString("media") || row.id,
+            })
+            $app.save(inbox)
+          } catch (err) {
+            console.log("delivery download stamp failed: " + err)
+          }
+        }
+      }
+      return e.fileFS($os.dirFS(dir), base)
+    } catch (_) {}
+  }
+
+  let fsys
+  try {
+    fsys = $app.newFilesystem()
+  } catch (err) {
+    console.log("delivery-file newFilesystem failed: " + err)
+    throw new ApiError(500, "Storage unavailable.", {})
+  }
+  let lastErr = ""
+  try {
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i]
+      let reader
+      try {
+        try {
+          reader = fsys.getReader(cand.key)
+        } catch (_) {
+          reader = fsys.getFile(cand.key)
+        }
+        const bytes = toString(reader, 80 * 1024 * 1024)
+        try {
+          reader.close()
+        } catch (_) {}
+        reader = null
+        if (bytes == null || bytes === "") {
+          lastErr = "empty " + cand.key
+          continue
+        }
+        let contentType = "image/jpeg"
+        const lower = String(cand.name || "").toLowerCase()
+        if (lower.indexOf(".png") >= 0) contentType = "image/png"
+        else if (lower.indexOf(".webp") >= 0) contentType = "image/webp"
+        else if (lower.indexOf(".gif") >= 0) contentType = "image/gif"
+        if (download && !thumb) {
+          let alreadyDownloaded = false
+          try {
+            const dt = delivery.getDateTime("downloaded_at")
+            alreadyDownloaded = !!(dt && dt.time().unixMilli() > 100000)
+          } catch (_) {}
+          if (!alreadyDownloaded) {
+            try {
+              delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
+              $app.save(delivery)
+              const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
+              const inbox = new Record(inboxCol)
+              inbox.set("kind", "delivery_event")
+              inbox.set("payload", {
+                inbox_read: false,
+                event: "download",
+                delivery_id: delivery.id,
+                client_name: delivery.getString("client_name"),
+                media_id: row.getString("media") || row.id,
+              })
+              $app.save(inbox)
+            } catch (err) {
+              console.log("delivery download stamp failed: " + err)
+            }
+          }
+        }
+        // SPA downloads use fetch+blob; attachment disposition is optional.
+        return e.blob(200, contentType, bytes)
+      } catch (err) {
+        lastErr = cand.key + ": " + err
+        console.log("delivery-file candidate failed: " + lastErr)
+        try {
+          if (reader) reader.close()
+        } catch (_) {}
+      }
+    }
+  } finally {
+    try {
+      fsys.close()
+    } catch (_) {}
+  }
+  console.log("delivery-file not found last=" + lastErr)
+  throw new NotFoundError("File not found.")
 })
 
 routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
@@ -1120,7 +1286,7 @@ routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
   let row
   try {
     row = $app.findFirstRecordByFilter("push_subscriptions", "device_secret = {:s}", { s: secret })
-  } catch {
+  } catch (_) {
     throw new NotFoundError()
   }
   const pending = parseJson(row.get("pending"), null)
