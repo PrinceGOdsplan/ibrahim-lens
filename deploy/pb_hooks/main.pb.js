@@ -110,6 +110,38 @@ function siteUrl() {
   return "https://ibrahimlens.com.ng"
 }
 
+function deliveryShortCode() {
+  try {
+    return $security.randomStringWithAlphabet(
+      8,
+      "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",
+    )
+  } catch (_) {
+    const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    let out = ""
+    for (let i = 0; i < 8; i++) out += alphabet.charAt(Math.floor(Math.random() * alphabet.length))
+    return out
+  }
+}
+
+function ensureDeliveryShortCode(record) {
+  if ((record.getString("short_code") || "").trim()) return record
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      record.set("short_code", deliveryShortCode())
+      $app.save(record)
+      return record
+    } catch (_) {}
+  }
+  return record
+}
+
+function deliverySharePath(record) {
+  const short = (record.getString("short_code") || "").trim()
+  if (short) return "/g/" + short
+  return "/g/" + record.getString("token")
+}
+
 function photographerRecord() {
   try {
     return $app.findFirstRecordByFilter("users", "email != ''")
@@ -568,6 +600,7 @@ onRecordAfterCreateSuccess((e) => {
 onRecordAfterCreateSuccess((e) => {
   e.next()
   const delivery = e.record
+  ensureDeliveryShortCode(delivery)
   const rawImages = delivery.get("images")
   const ids = []
   if (typeof rawImages === "string" && rawImages) {
@@ -668,7 +701,7 @@ onRecordAfterCreateSuccess((e) => {
   if (!clientPrefOn(settings, "client_gallery")) return
   const email = (e.record.getString("client_email") || "").trim()
   if (!email) return
-  const token = e.record.getString("token")
+  ensureDeliveryShortCode(e.record)
   const origin = siteUrl()
   const name = String(e.record.getString("client_name") || "there")
     .replace(/&/g, "&amp;")
@@ -684,7 +717,7 @@ onRecordAfterCreateSuccess((e) => {
           "<p>Hi " +
             name +
             ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-          origin + "/g/" + token,
+          origin + deliverySharePath(e.record),
           "Open your gallery",
         ),
       )
@@ -792,7 +825,6 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-    const token = d.getString("token")
     try {
       if (
         sendMail(
@@ -803,7 +835,7 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
             "<p>Hi " +
               name +
               ",</p><p>Your gallery expires in about a day. Download your photographs if you have not already.</p>",
-            origin + "/g/" + token,
+            origin + deliverySharePath(d),
             "Open your gallery",
           ),
         )
@@ -843,7 +875,7 @@ routerAdd(
       throw new BadRequestError("Client gallery email is turned off in Settings → Notifications.")
     }
     if (!smtpReady()) throw new BadRequestError("Outbound mail is not configured.")
-    const token = delivery.getString("token")
+    ensureDeliveryShortCode(delivery)
     const origin = siteUrl()
     const name = String(delivery.getString("client_name") || "there")
       .replace(/&/g, "&amp;")
@@ -859,7 +891,7 @@ routerAdd(
             "<p>Hi " +
               name +
               ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-            origin + "/g/" + token,
+            origin + deliverySharePath(delivery),
             "Open your gallery",
           ),
         )
@@ -951,13 +983,17 @@ function escapeOg(value) {
 
 /** Crawler-facing HTML for Delivery share links (messengers do not run the SPA). */
 routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
-  const token = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
-  if (!token) throw new NotFoundError("Not found.")
+  const code = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
+  if (!code) throw new NotFoundError("Not found.")
   let delivery
   try {
-    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:token}", { token: token })
+    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:code}", { code: code })
   } catch (_) {
-    throw new NotFoundError("Not found.")
+    try {
+      delivery = $app.findFirstRecordByFilter("deliveries", "short_code = {:code}", { code: code })
+    } catch (_) {
+      throw new NotFoundError("Not found.")
+    }
   }
   if (delivery.getBool("revoked")) throw new NotFoundError("Not found.")
   const exp = delivery.getDateTime("expires_at")
@@ -967,7 +1003,8 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
   const clientName = String(delivery.getString("client_name") || "Client").trim() || "Client"
   const title = "Gallery for " + clientName
   const description = "Private photographs from Ibrahim Lens."
-  const pageUrl = origin + "/g/" + token
+  const pageUrl = origin + deliverySharePath(delivery)
+  const fileToken = delivery.getString("token")
   let imageUrl = origin + "/og-default.jpg"
   try {
     const files = $app.findRecordsByFilter(
@@ -985,7 +1022,7 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
         imageUrl =
           origin +
           "/api/ibrahim/delivery-file/" +
-          encodeURIComponent(token) +
+          encodeURIComponent(fileToken) +
           "/" +
           encodeURIComponent(row.id) +
           "/" +

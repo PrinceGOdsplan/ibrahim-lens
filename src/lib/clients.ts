@@ -11,6 +11,8 @@ export type DeliverySource = 'images' | 'albums' | 'work'
 
 export type DeliveryRecord = RecordModel & {
   token: string
+  /** Public share path segment; prefer over token in `/g/:code` links. */
+  short_code?: string
   client_name: string
   client_email?: string
   source_type: DeliverySource
@@ -66,8 +68,11 @@ export function isDeliveryActive(d: Pick<DeliveryRecord, 'expires_at' | 'revoked
   return new Date(d.expires_at).getTime() > Date.now()
 }
 
-export function deliveryPublicUrl(token: string) {
-  return `${window.location.origin}/g/${token}`
+/** Prefer short share code when present; string arg kept for older call sites. */
+export function deliveryPublicUrl(delivery: Pick<DeliveryRecord, 'token' | 'short_code'> | string) {
+  const code =
+    typeof delivery === 'string' ? delivery : delivery.short_code?.trim() || delivery.token
+  return `${window.location.origin}/g/${code}`
 }
 
 export function formatTimeRemaining(expiresAt: string) {
@@ -85,6 +90,17 @@ function randomToken() {
   const bytes = new Uint8Array(24)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Unambiguous alphabet (no 0/O/1/l/I) for short share codes. */
+const SHORT_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+export function randomShortCode(length = 8) {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  let out = ''
+  for (let i = 0; i < length; i++) out += SHORT_ALPHABET[bytes[i]! % SHORT_ALPHABET.length]
+  return out
 }
 
 async function resolveImageIds(input: {
@@ -174,11 +190,13 @@ export async function createDelivery(input: {
 
   const images = await resolveImageIds(input)
   const token = randomToken()
+  const short_code = randomShortCode()
   const expires_at = deliveryExpiresAt()
 
   try {
     const data: Record<string, unknown> = {
       token,
+      short_code,
       client_name: clientName || 'Client',
       client_email: input.clientEmail?.trim() || '',
       source_type: input.sourceType,
@@ -341,11 +359,12 @@ export function canResendGalleryEmail(d: Pick<DeliveryRecord, 'client_email' | '
   return isDeliveryActive(d) && Boolean(d.client_email?.trim())
 }
 
-/** Public: fetch delivery by secret token (query.token required by API rules). */
+/** Public: fetch delivery by long token or short share code (query.token required by API rules). */
 export async function getDeliveryByToken(token: string) {
   try {
+    const safe = token.replaceAll('"', '\\"')
     const list = await pb.collection('deliveries').getList<DeliveryRecord>(1, 1, {
-      filter: `token="${token.replaceAll('"', '\\"')}"`,
+      filter: `token="${safe}" || short_code="${safe}"`,
       expand: 'images',
       query: { token },
     })

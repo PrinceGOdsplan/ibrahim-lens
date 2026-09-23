@@ -259,7 +259,7 @@ function DeliveryDetail({
           disabled={!active}
           title={copyLinkDisabledReason(delivery)}
           onClick={async () => {
-            await navigator.clipboard.writeText(deliveryPublicUrl(delivery.token))
+            await navigator.clipboard.writeText(deliveryPublicUrl(delivery))
             setCopied(true)
           }}
         >
