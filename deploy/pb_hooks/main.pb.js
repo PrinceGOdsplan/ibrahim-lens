@@ -1176,10 +1176,11 @@ routerAdd("GET", "/api/ibrahim/delivery-public/{token}", (e) => {
   const exp = delivery.getDateTime("expires_at")
   let expiresAt = ""
   try {
-    expiresAt = exp.time().UTC().format("2006-01-02 15:04:05.000Z")
+    // Prefer ISO-8601 with T so browsers parse the same way as Node.
+    expiresAt = new Date(exp.time().unixMilli()).toISOString()
   } catch (_) {
     try {
-      expiresAt = String(delivery.get("expires_at") || "")
+      expiresAt = String(delivery.get("expires_at") || "").trim().replace(" ", "T")
     } catch (_) {}
   }
   const fileRows = (files || []).map((row) => ({

@@ -374,7 +374,8 @@ export async function loadPublicDelivery(token: string) {
     }>(`/api/ibrahim/delivery-public/${encodeURIComponent(token)}`, { method: 'GET' })
     const delivery = res?.delivery
     if (!delivery?.token) throw new Error('Delivery not found.')
-    if (!isDeliveryActive(delivery)) throw new Error('This delivery link has expired or been revoked.')
+    // Hook already rejected revoked/expired; only re-check revoked for safety.
+    if (delivery.revoked) throw new Error('This delivery link has expired or been revoked.')
     return {
       delivery,
       files: Array.isArray(res.files) ? res.files : [],
