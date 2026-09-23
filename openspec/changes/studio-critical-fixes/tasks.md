@@ -16,4 +16,4 @@
 ## 4. Verify
 
 - [x] 4.1 Lint/typecheck clean for touched files
-- [ ] 4.2 Smoke: delivery thumb + single + zip download; booking/Write notify with Studio cookie; toast in Studio; Load more on Bookings/Clients
+- [x] 4.2 Smoke: delivery thumb + single + zip download; booking/Write notify with Studio cookie; toast in Studio; Load more on Bookings/Clients
