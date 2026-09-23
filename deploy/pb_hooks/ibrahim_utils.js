@@ -51,6 +51,26 @@ function deliverySharePath(record) {
   return "/g/" + record.getString("token")
 }
 
+/** Resolve an active Delivery by long token or short share code. Throws NotFoundError. */
+function findActiveDeliveryByShareCode(code) {
+  const value = String(code || "").trim()
+  if (!value) throw new NotFoundError("Not found.")
+  let delivery
+  try {
+    delivery = $app.findFirstRecordByFilter("deliveries", "token = {:code}", { code: value })
+  } catch (_) {
+    try {
+      delivery = $app.findFirstRecordByFilter("deliveries", "short_code = {:code}", { code: value })
+    } catch (_) {
+      throw new NotFoundError("Not found.")
+    }
+  }
+  if (delivery.getBool("revoked")) throw new NotFoundError("Not found.")
+  const exp = delivery.getDateTime("expires_at")
+  if (exp.time().unixMilli() < Date.now()) throw new NotFoundError("Not found.")
+  return delivery
+}
+
 function escapeOg(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -307,6 +327,7 @@ module.exports = {
   deliveryShortCode,
   ensureDeliveryShortCode,
   deliverySharePath,
+  findActiveDeliveryByShareCode,
   escapeOg,
   requestInfo,
   clientIp,

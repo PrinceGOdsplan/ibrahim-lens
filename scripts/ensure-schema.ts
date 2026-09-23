@@ -688,9 +688,9 @@ export async function ensureClientsSchema(pb: PocketBase) {
   const deliveryGuest =
     'token != "" && (token = @request.query.token || short_code = @request.query.token) && revoked != true && expires_at > @now'
   const deliveryFeedbackGuest =
-    '@request.query.token != "" && delivery.token = @request.query.token && delivery.revoked != true && delivery.expires_at > @now'
+    '@request.query.token != "" && (delivery.token = @request.query.token || delivery.short_code = @request.query.token) && delivery.revoked != true && delivery.expires_at > @now'
   const mediaViaDelivery =
-    `@request.query.token != "" && @collection.deliveries.token = @request.query.token && @collection.deliveries.revoked != true && @collection.deliveries.expires_at > @now && @collection.deliveries.images.id ?= id`
+    `@request.query.token != "" && (@collection.deliveries.token = @request.query.token || @collection.deliveries.short_code = @request.query.token) && @collection.deliveries.revoked != true && @collection.deliveries.expires_at > @now && @collection.deliveries.images.id ?= id`
 
   let deliveries = await getCollection(pb, 'deliveries')
   if (!deliveries) {
@@ -815,7 +815,7 @@ export async function ensureClientsSchema(pb: PocketBase) {
 
   const maxSize = maxUploadBytes()
   const deliveryFileGuest =
-    '@request.query.token != "" && delivery.token = @request.query.token && delivery.revoked != true && delivery.expires_at > @now'
+    '@request.query.token != "" && (delivery.token = @request.query.token || delivery.short_code = @request.query.token) && delivery.revoked != true && delivery.expires_at > @now'
   let deliveryFiles = await getCollection(pb, 'delivery_files')
   if (!deliveryFiles) {
     deliveryFiles = await pb.collections.create({

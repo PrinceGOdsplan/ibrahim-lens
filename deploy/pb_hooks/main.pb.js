@@ -1142,6 +1142,80 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
   return e.html(200, html)
 })
 
+/**
+ * Guest gallery bootstrap: resolve long token or short_code and return the
+ * Delivery plus its delivery_files. Collection guest rules may still require
+ * the long token; this path is what /g/{short_code} uses so every share works.
+ */
+routerAdd("GET", "/api/ibrahim/delivery-public/{token}", (e) => {
+  const U = require(`${__hooks}/ibrahim_utils.js`)
+  const requestInfo = U.requestInfo
+  const clientIp = U.clientIp
+  const guestRateLimit = U.guestRateLimit
+  const findActiveDeliveryByShareCode = U.findActiveDeliveryByShareCode
+  const info = requestInfo(e)
+  const ip = clientIp(e, info)
+  if (!guestRateLimit("delivery-public:ip:" + ip, 60, 60 * 1000)) {
+    throw new BadRequestError("Please try again in a few minutes.")
+  }
+  const code = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
+  const delivery = findActiveDeliveryByShareCode(code)
+  let files = []
+  try {
+    files = $app.findRecordsByFilter(
+      "delivery_files",
+      "delivery = {:id}",
+      "sort,created",
+      500,
+      0,
+      { id: delivery.id },
+    )
+  } catch (_) {
+    files = []
+  }
+  const exp = delivery.getDateTime("expires_at")
+  let expiresAt = ""
+  try {
+    expiresAt = exp.time().UTC().format("2006-01-02 15:04:05.000Z")
+  } catch (_) {
+    try {
+      expiresAt = String(delivery.get("expires_at") || "")
+    } catch (_) {}
+  }
+  const fileRows = (files || []).map((row) => ({
+    id: row.id,
+    collectionId: row.collectionId,
+    collectionName: "delivery_files",
+    delivery: delivery.id,
+    media: row.getString("media") || "",
+    file: row.getString("file") || "",
+    caption: row.getString("caption") || "",
+    sort: row.getInt("sort") || 0,
+    created: row.getString("created") || "",
+    updated: row.getString("updated") || "",
+  }))
+  return e.json(200, {
+    delivery: {
+      id: delivery.id,
+      collectionId: delivery.collectionId,
+      collectionName: "deliveries",
+      token: delivery.getString("token"),
+      short_code: delivery.getString("short_code") || "",
+      client_name: delivery.getString("client_name") || "",
+      client_email: delivery.getString("client_email") || "",
+      source_type: delivery.getString("source_type") || "images",
+      images: delivery.get("images") || [],
+      albums: delivery.get("albums") || [],
+      work: delivery.getString("work") || "",
+      expires_at: expiresAt,
+      revoked: delivery.getBool("revoked"),
+      created: delivery.getString("created") || "",
+      updated: delivery.getString("updated") || "",
+    },
+    files: fileRows,
+  })
+})
+
 routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
   const U = require(`${__hooks}/ibrahim_utils.js`)
   const requestInfo = U.requestInfo

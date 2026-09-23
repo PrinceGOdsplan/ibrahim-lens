@@ -299,21 +299,6 @@ export async function deleteDeliveryFiles(deliveryId: string) {
   await Promise.all(rows.map((row) => pb.collection('delivery_files').delete(row.id)))
 }
 
-export async function listDeliveryFiles(token: string) {
-  const safe = token.replaceAll('"', '')
-  const list = await pb.collection('deliveries').getList<DeliveryRecord>(1, 1, {
-    filter: `token="${safe}"`,
-    query: { token: safe },
-  })
-  const delivery = list.items[0]
-  if (!delivery) return []
-  return listCollected<DeliveryFileRecord>('delivery_files', {
-    sort: 'sort,created',
-    filter: `delivery="${delivery.id}"`,
-    query: { token: safe },
-  })
-}
-
 export async function listDeliveryFilesFor(deliveryId: string) {
   const id = deliveryId.replaceAll('"', '')
   return listCollected<DeliveryFileRecord>('delivery_files', {
@@ -380,21 +365,38 @@ export function canResendGalleryEmail(d: Pick<DeliveryRecord, 'client_email' | '
   return isDeliveryActive(d) && Boolean(d.client_email?.trim())
 }
 
-/** Public: fetch delivery by long token or short share code (query.token required by API rules). */
-export async function getDeliveryByToken(token: string) {
+/** Public: fetch delivery by long token or short share code. */
+export async function loadPublicDelivery(token: string) {
   try {
-    const safe = token.replaceAll('"', '\\"')
-    const list = await pb.collection('deliveries').getList<DeliveryRecord>(1, 1, {
-      filter: `token="${safe}" || short_code="${safe}"`,
-      expand: 'images',
-      query: { token },
-    })
-    const delivery = list.items[0]
-    if (!delivery) throw new Error('Delivery not found.')
+    const res = await pb.send<{
+      delivery: DeliveryRecord
+      files: DeliveryFileRecord[]
+    }>(`/api/ibrahim/delivery-public/${encodeURIComponent(token)}`, { method: 'GET' })
+    const delivery = res?.delivery
+    if (!delivery?.token) throw new Error('Delivery not found.')
     if (!isDeliveryActive(delivery)) throw new Error('This delivery link has expired or been revoked.')
-    return delivery
+    return {
+      delivery,
+      files: Array.isArray(res.files) ? res.files : [],
+    }
   } catch (error) {
     throw new Error(pbErrorMessage(error, 'This delivery link is unavailable.'))
+  }
+}
+
+/** Public: fetch delivery by long token or short share code. */
+export async function getDeliveryByToken(token: string) {
+  const { delivery } = await loadPublicDelivery(token)
+  return delivery
+}
+
+/** Public: list delivery_files for a long token or short share code. */
+export async function listDeliveryFiles(token: string) {
+  try {
+    const { files } = await loadPublicDelivery(token)
+    return files
+  } catch {
+    return []
   }
 }
 

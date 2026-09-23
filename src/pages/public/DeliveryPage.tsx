@@ -8,8 +8,7 @@ import { publicErrorMessage } from '@/lib/pb-error'
 import {
   type DeliveryRecord,
   formatTimeRemaining,
-  getDeliveryByToken,
-  listDeliveryFiles,
+  loadPublicDelivery,
   listDeliveryImages,
   submitDeliveryFeedback,
 } from '@/lib/clients'
@@ -39,12 +38,11 @@ export function DeliveryPage() {
     if (!token) return
     let cancelled = false
     setLoading(true)
-    getDeliveryByToken(token)
-      .then(async (d) => {
+    loadPublicDelivery(token)
+      .then(async ({ delivery: d, files: copies }) => {
         if (cancelled) return
         setDelivery(d)
-        const copies = await listDeliveryFiles(token)
-        if (cancelled) return
+        // Prefer snapshotted delivery_files. Thumbs always use the long token.
         if (copies.length) {
           setImages(copies as unknown as MediaRecord[])
         } else {
@@ -52,7 +50,7 @@ export function DeliveryPage() {
           if (expanded?.length) {
             setImages(expanded)
           } else {
-            setImages(await listDeliveryImages(token, d.images ?? []))
+            setImages(await listDeliveryImages(d.token, d.images ?? []))
           }
         }
       })
