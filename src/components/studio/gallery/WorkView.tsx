@@ -71,20 +71,21 @@ export function WorkView({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const active = works.find((work) => work.id === activeWorkId) ?? null
   const q = search.trim().toLowerCase()
-  const listed = works
-    .filter((work) => {
-      if (websiteFilter === 'site' && !work.show_on_website) return false
-      if (websiteFilter === 'private' && work.show_on_website) return false
-      if (!q) return true
-      const hay = [work.title, work.description, work.story_client, work.story_location, work.slug]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return hay.includes(q)
-    })
-    .sort((a, b) =>
-      sort === 'name' ? a.title.localeCompare(b.title) : (b.created || '').localeCompare(a.created || ''),
-    )
+  // Wall order follows Work.sort (same as public /work). Arrange date/name must not
+  // override hierarchy or up/down would look broken after refresh.
+  const hierarchy = [...works].sort(
+    (a, b) => (a.sort || 0) - (b.sort || 0) || a.title.localeCompare(b.title),
+  )
+  const listed = hierarchy.filter((work) => {
+    if (websiteFilter === 'site' && !work.show_on_website) return false
+    if (websiteFilter === 'private' && work.show_on_website) return false
+    if (!q) return true
+    const hay = [work.title, work.description, work.story_client, work.story_location, work.slug]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+    return hay.includes(q)
+  })
   const photos = filterCollectionPhotos(
     (active?.images ?? [])
       .map((id) => media.find((item) => item.id === id))
@@ -94,12 +95,19 @@ export function WorkView({
   const coverId = active?.cover || active?.images?.[0] || undefined
 
   function move(id: string, direction: -1 | 1) {
-    const ids = works.map((work) => work.id)
-    const index = ids.indexOf(id)
+    const visibleIds = listed.map((work) => work.id)
+    const index = visibleIds.indexOf(id)
     const next = index + direction
-    if (index < 0 || next < 0 || next >= ids.length) return
-    ;[ids[index], ids[next]] = [ids[next], ids[index]]
-    onReorder(ids)
+    if (index < 0 || next < 0 || next >= visibleIds.length) return
+    ;[visibleIds[index], visibleIds[next]] = [visibleIds[next], visibleIds[index]]
+    if (visibleIds.length === hierarchy.length) {
+      onReorder(visibleIds)
+      return
+    }
+    // Filtered wall: swap neighbors in the visible list, keep others' relative places.
+    const visible = new Set(visibleIds)
+    let i = 0
+    onReorder(hierarchy.map((work) => (visible.has(work.id) ? visibleIds[i++]! : work.id)))
   }
 
   if (!active) {

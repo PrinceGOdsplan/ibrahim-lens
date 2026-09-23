@@ -359,15 +359,16 @@ export function StudioGalleryPage() {
 
   useEffect(() => {
     if (activeAlbumId && albums.length && !albums.some((album) => album.id === activeAlbumId)) {
-      setActiveAlbumId(null)
+      // One write — clearing album then media via separate setters races and can restore album=.
+      patchParams({ album: null, media: null })
     }
-  }, [albums, activeAlbumId, setActiveAlbumId])
+  }, [albums, activeAlbumId, patchParams])
 
   useEffect(() => {
     if (activeWorkId && works.length && !works.some((work) => work.id === activeWorkId)) {
-      setActiveWorkId(null)
+      patchParams({ work: null, media: null })
     }
-  }, [works, activeWorkId, setActiveWorkId])
+  }, [works, activeWorkId, patchParams])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setNameQuery(searchInput.trim()), 250)
@@ -1007,8 +1008,8 @@ export function StudioGalleryPage() {
             sort={sort}
             tagFilter={tagFilter}
             setActiveAlbumId={(id) => {
-              setActiveAlbumId(id)
-              if (!id) setActiveId(null)
+              if (!id) patchParams({ album: null, media: null })
+              else setActiveAlbumId(id)
             }}
             onOpenMedia={setActiveId}
             onCreate={(title) =>
@@ -1033,8 +1034,7 @@ export function StudioGalleryPage() {
               if (!ok) return
               await run(async () => {
                 await deleteAlbum(id)
-                setActiveAlbumId(null)
-                setActiveId(null)
+                patchParams({ album: null, media: null })
               })
             }}
             onUpload={() => uploadRef.current?.click()}
@@ -1058,8 +1058,9 @@ export function StudioGalleryPage() {
             tagFilter={tagFilter}
             websiteFilter={websiteFilter}
             setActiveWorkId={(id) => {
-              setActiveWorkId(id)
-              if (!id) setActiveId(null)
+              // One URL write — setActiveWorkId(null) + setActiveId(null) race and can leave work= set.
+              if (!id) patchParams({ work: null, media: null })
+              else setActiveWorkId(id)
             }}
             onOpenMedia={setActiveId}
             onCreate={(title) =>
@@ -1083,8 +1084,7 @@ export function StudioGalleryPage() {
               if (!ok) return
               await run(async () => {
                 await deleteWork(id)
-                setActiveWorkId(null)
-                setActiveId(null)
+                patchParams({ work: null, media: null })
               })
             }}
             onReorder={(ids) => void run(() => reorderWork(ids))}
