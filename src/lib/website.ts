@@ -3,6 +3,7 @@ import { pb } from '@/lib/pocketbase'
 import { isGuestHiddenCreate, pbErrorMessage } from '@/lib/pb-error'
 import type { MediaRecord } from '@/lib/library'
 import { listPublicPortfolio } from '@/lib/library'
+import { listCollected } from '@/lib/list-pages'
 
 export const DEFAULT_WRITE_BLURB = 'Name, phone, and a short note.'
 
@@ -340,11 +341,11 @@ export async function listPortfolioForFeatured() {
 }
 
 export async function listTestimonials() {
-  return pb.collection('testimonials').getFullList<Testimonial>({ sort: 'sort,created' })
+  return listCollected<Testimonial>('testimonials', { sort: 'sort,created' })
 }
 
 export async function listPublishedTestimonials() {
-  return pb.collection('testimonials').getFullList<Testimonial>({
+  return listCollected<Testimonial>('testimonials', {
     filter: 'published = true',
     sort: 'sort,created',
   })
@@ -379,7 +380,7 @@ export async function deleteTestimonial(id: string) {
 }
 
 export async function listFaq() {
-  return pb.collection('faq_items').getFullList<FaqItem>({ sort: 'sort,created' })
+  return listCollected<FaqItem>('faq_items', { sort: 'sort,created' })
 }
 
 export async function createFaq(data: { question: string; answer: string }) {
@@ -403,7 +404,7 @@ export async function deleteFaq(id: string) {
 }
 
 export async function listSeo() {
-  return pb.collection('seo_meta').getFullList<SeoMeta>({ sort: 'page_key' })
+  return listCollected<SeoMeta>('seo_meta', { sort: 'page_key' })
 }
 
 export async function upsertSeo(pageKey: string, title: string, description: string) {

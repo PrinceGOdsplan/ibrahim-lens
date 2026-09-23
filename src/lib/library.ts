@@ -1,6 +1,7 @@
 import type { RecordModel } from 'pocketbase'
 import { pb } from '@/lib/pocketbase'
 import { ALLOWED_IMAGE_TYPES, getMaxUploadBytes, getMaxUploadMb } from '@/lib/config'
+import { listCollected } from '@/lib/list-pages'
 
 export type MediaVault = 'gallery' | 'portfolio' | 'held'
 
@@ -216,12 +217,12 @@ export function filterCollectionPhotos(
 /** All media (both vaults). Prefer listMediaPage for Gallery walls; pickers still use this. */
 export async function listMedia() {
   try {
-    return await pb.collection('media').getFullList<MediaRecord>({
+    return await listCollected<MediaRecord>('media', {
       sort: '-created',
       expand: 'tags',
     })
   } catch {
-    return pb.collection('media').getFullList<MediaRecord>({ sort: '-created' })
+    return listCollected<MediaRecord>('media', { sort: '-created' })
   }
 }
 
@@ -309,7 +310,7 @@ export async function listGalleryMedia() {
 
 export async function listPortfolioMedia() {
   const load = (expand?: string) =>
-    pb.collection('media').getFullList<MediaRecord>({
+    listCollected<MediaRecord>('media', {
       filter: 'vault = "portfolio"',
       sort: 'portfolio_sort,created',
       ...(expand ? { expand } : {}),
@@ -325,13 +326,13 @@ export async function listPortfolioMedia() {
 /** Gallery + Portfolio only — what Studio pickers attach from. */
 export async function listPickPileMedia() {
   try {
-    return await pb.collection('media').getFullList<MediaRecord>({
+    return await listCollected<MediaRecord>('media', {
       filter: 'vault = "gallery" || vault = "portfolio"',
       sort: '-created',
       expand: 'tags',
     })
   } catch {
-    return pb.collection('media').getFullList<MediaRecord>({
+    return listCollected<MediaRecord>('media', {
       filter: 'vault = "gallery" || vault = "portfolio"',
       sort: '-created',
     })
@@ -402,7 +403,7 @@ export async function uploadMedia(file: File, caption = '', dest: MediaUploadDes
 }
 
 export async function findPortfolioCopies(galleryId: string) {
-  return pb.collection('media').getFullList<MediaRecord>({
+  return listCollected<MediaRecord>('media', {
     filter: `copied_from = "${galleryId}" && vault = "portfolio"`,
   })
 }
@@ -547,7 +548,7 @@ export async function updateMediaCaption(id: string, caption: string) {
 
 /** Flags `id` as the Artist portrait, clearing any other flagged image first. Pass `null` to clear. */
 export async function setArtistPortrait(id: string | null) {
-  const flagged = await pb.collection('media').getFullList<MediaRecord>({
+  const flagged = await listCollected<MediaRecord>('media', {
     filter: 'is_artist_portrait = true',
   })
   await Promise.all(
@@ -603,7 +604,7 @@ export async function ensureGalleryVaultMigration() {
 }
 
 export async function listTags() {
-  return pb.collection('portfolio_tags').getFullList<TagRecord>({ sort: 'name' })
+  return listCollected<TagRecord>('portfolio_tags', { sort: 'name' })
 }
 
 export function normalizeTagName(name: string) {
@@ -772,7 +773,7 @@ export async function listMediaByIds(ids: string[]) {
   for (let i = 0; i < unique.length; i += chunkSize) {
     const chunk = unique.slice(i, i + chunkSize)
     const filter = chunk.map((id) => `id = "${id.replaceAll('"', '')}"`).join(' || ')
-    const page = await pb.collection('media').getFullList<MediaRecord>({ filter })
+    const page = await listCollected<MediaRecord>('media', { filter })
     for (const item of page) {
       if (seen.has(item.id)) continue
       seen.add(item.id)
@@ -783,7 +784,7 @@ export async function listMediaByIds(ids: string[]) {
 }
 
 export async function listAlbums() {
-  return pb.collection('albums').getFullList<AlbumRecord>({ sort: 'title' })
+  return listCollected<AlbumRecord>('albums', { sort: 'title' })
 }
 
 /** Album list plus first-image expand for cover thumbs — not every frame. */
@@ -819,12 +820,12 @@ export async function setAlbumImages(id: string, imageIds: string[]) {
 
 export async function listWork() {
   try {
-    return await pb.collection('work_projects').getFullList<WorkRecord>({
+    return await listCollected<WorkRecord>('work_projects', {
       sort: 'sort,title',
       expand: 'cover',
     })
   } catch {
-    return pb.collection('work_projects').getFullList<WorkRecord>({ sort: 'sort,title' })
+    return listCollected<WorkRecord>('work_projects', { sort: 'sort,title' })
   }
 }
 
@@ -957,13 +958,13 @@ export function applyDocumentFavicon(href: string) {
 
 export async function listPublicPortfolio() {
   try {
-    return await pb.collection('media').getFullList<MediaRecord>({
+    return await listCollected<MediaRecord>('media', {
       filter: 'vault = "portfolio"',
       sort: 'portfolio_sort,created',
     })
   } catch {
     // Pre-migration / missing vault field fallback
-    return pb.collection('media').getFullList<MediaRecord>({
+    return listCollected<MediaRecord>('media', {
       filter: 'in_portfolio = true',
       sort: 'portfolio_sort,created',
     })
@@ -972,13 +973,13 @@ export async function listPublicPortfolio() {
 
 export async function listPublicWork() {
   try {
-    return await pb.collection('work_projects').getFullList<WorkRecord>({
+    return await listCollected<WorkRecord>('work_projects', {
       filter: 'show_on_website = true',
       sort: 'sort,title',
       expand: 'cover',
     })
   } catch {
-    return pb.collection('work_projects').getFullList<WorkRecord>({
+    return listCollected<WorkRecord>('work_projects', {
       filter: 'show_on_website = true',
       sort: 'sort,title',
     })

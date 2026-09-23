@@ -3101,8 +3101,12 @@ routerAdd(
         var n
         for (n = 0; n < 24; n++) bytes.push(Math.floor(Math.random() * 16).toString(16))
         var token = bytes.join("")
+        var shortBytes = []
+        var shortAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        for (n = 0; n < 8; n++) shortBytes.push(shortAlphabet.charAt(Math.floor(Math.random() * shortAlphabet.length)))
         var rec = new Record(dcol)
         rec.set("token", token)
+        rec.set("short_code", shortBytes.join(""))
         rec.set("client_name", String(payload.clientName || "Client"))
         rec.set("client_email", String(payload.clientEmail || ""))
         rec.set("source_type", "images")

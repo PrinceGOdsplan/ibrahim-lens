@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { pb } from '@/lib/pocketbase'
 import { getNotificationSettings } from '@/lib/notifications'
 import { mergeNoticeChannels, type PhotographerNoticeEvent } from '@/lib/notice-channels'
@@ -30,13 +30,30 @@ function hrefFor(event: PhotographerNoticeEvent, opts?: { inquiryId?: string; bo
 
 export function useStudioNotices() {
   const [items, setItems] = useState<StudioNotice[]>([])
+  const [toast, setToast] = useState<StudioNotice | null>(null)
+  const toastTimer = useRef<number | null>(null)
+  const seededIds = useRef(new Set<string>())
 
-  const pushNotice = useCallback((notice: StudioNotice) => {
-    setItems((prev) => {
-      if (prev.some((p) => p.id === notice.id)) return prev
-      return [notice, ...prev].slice(0, 12)
-    })
+  const showToast = useCallback((notice: StudioNotice) => {
+    if (seededIds.current.has(notice.id)) return
+    setToast(notice)
+    if (toastTimer.current) window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => {
+      setToast((current) => (current?.id === notice.id ? null : current))
+      toastTimer.current = null
+    }, 8000)
   }, [])
+
+  const pushNotice = useCallback(
+    (notice: StudioNotice) => {
+      setItems((prev) => {
+        if (prev.some((p) => p.id === notice.id)) return prev
+        return [notice, ...prev].slice(0, 12)
+      })
+      showToast(notice)
+    },
+    [showToast],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -104,6 +121,7 @@ export function useStudioNotices() {
         }
 
         seeded.sort((a, b) => (a.when === 'Just now' ? -1 : b.when === 'Just now' ? 1 : 0))
+        for (const row of seeded) seededIds.current.add(row.id)
         setItems(seeded.slice(0, 12))
       } catch {
         // seed optional
@@ -171,6 +189,7 @@ export function useStudioNotices() {
     void start()
     return () => {
       cancelled = true
+      if (toastTimer.current) window.clearTimeout(toastTimer.current)
       for (const u of unsubs) {
         try {
           u()
@@ -189,6 +208,7 @@ export function useStudioNotices() {
       }
       return prev.filter((n) => n.id !== id)
     })
+    setToast((current) => (current?.id === id ? null : current))
   }
 
   function dismissAll() {
@@ -198,7 +218,12 @@ export function useStudioNotices() {
       }
       return []
     })
+    setToast(null)
   }
 
-  return { items, dismiss, dismissAll }
+  function dismissToast() {
+    setToast(null)
+  }
+
+  return { items, toast, dismiss, dismissAll, dismissToast }
 }

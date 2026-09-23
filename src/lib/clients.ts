@@ -4,6 +4,7 @@ import { pbErrorMessage } from '@/lib/pb-error'
 import { listMediaByIds, type AlbumRecord, type MediaRecord, type WorkRecord } from '@/lib/library'
 import type { PersonRecord } from '@/lib/bookings'
 import { createTestimonial } from '@/lib/website'
+import { listCollected, listPage } from '@/lib/list-pages'
 
 export const DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -11,6 +12,8 @@ export type DeliverySource = 'images' | 'albums' | 'work'
 
 export type DeliveryRecord = RecordModel & {
   token: string
+  /** Public share path segment; prefer over token in `/g/:code` links. */
+  short_code?: string
   client_name: string
   client_email?: string
   source_type: DeliverySource
@@ -66,8 +69,11 @@ export function isDeliveryActive(d: Pick<DeliveryRecord, 'expires_at' | 'revoked
   return new Date(d.expires_at).getTime() > Date.now()
 }
 
-export function deliveryPublicUrl(token: string) {
-  return `${window.location.origin}/g/${token}`
+/** Prefer short share code when present; string arg kept for older call sites. */
+export function deliveryPublicUrl(delivery: Pick<DeliveryRecord, 'token' | 'short_code'> | string) {
+  const code =
+    typeof delivery === 'string' ? delivery : delivery.short_code?.trim() || delivery.token
+  return `${window.location.origin}/g/${code}`
 }
 
 export function formatTimeRemaining(expiresAt: string) {
@@ -85,6 +91,17 @@ function randomToken() {
   const bytes = new Uint8Array(24)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Unambiguous alphabet (no 0/O/1/l/I) for short share codes. */
+const SHORT_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+export function randomShortCode(length = 8) {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  let out = ''
+  for (let i = 0; i < length; i++) out += SHORT_ALPHABET[bytes[i]! % SHORT_ALPHABET.length]
+  return out
 }
 
 async function resolveImageIds(input: {
@@ -115,18 +132,7 @@ async function resolveImageIds(input: {
   return ids
 }
 
-export async function listDeliveries() {
-  let rows: DeliveryRecord[]
-  try {
-    rows = await pb.collection('deliveries').getFullList<DeliveryRecord>({
-      sort: '-created',
-      expand: 'albums,work,person',
-    })
-  } catch {
-    rows = await pb.collection('deliveries').getFullList<DeliveryRecord>({
-      sort: '-created',
-    })
-  }
+async function withDeliveryPreviewMedia(rows: DeliveryRecord[]) {
   const previewIds = rows.flatMap((row) => (Array.isArray(row.images) ? row.images.slice(0, 4) : []))
   if (!previewIds.length) return rows
   try {
@@ -143,6 +149,37 @@ export async function listDeliveries() {
     }))
   } catch {
     return rows
+  }
+}
+
+export async function listDeliveries() {
+  let rows: DeliveryRecord[]
+  try {
+    rows = await listCollected<DeliveryRecord>('deliveries', {
+      sort: '-created',
+      expand: 'albums,work,person',
+    })
+  } catch {
+    rows = await listCollected<DeliveryRecord>('deliveries', {
+      sort: '-created',
+    })
+  }
+  return withDeliveryPreviewMedia(rows)
+}
+
+export async function listDeliveriesPage(page: number, pageSize = 100) {
+  let pageResult
+  try {
+    pageResult = await listPage<DeliveryRecord>('deliveries', page, pageSize, {
+      sort: '-created',
+      expand: 'albums,work,person',
+    })
+  } catch {
+    pageResult = await listPage<DeliveryRecord>('deliveries', page, pageSize, { sort: '-created' })
+  }
+  return {
+    ...pageResult,
+    items: await withDeliveryPreviewMedia(pageResult.items),
   }
 }
 
@@ -174,11 +211,13 @@ export async function createDelivery(input: {
 
   const images = await resolveImageIds(input)
   const token = randomToken()
+  const short_code = randomShortCode()
   const expires_at = deliveryExpiresAt()
 
   try {
     const data: Record<string, unknown> = {
       token,
+      short_code,
       client_name: clientName || 'Client',
       client_email: input.clientEmail?.trim() || '',
       source_type: input.sourceType,
@@ -254,30 +293,15 @@ async function copyDeliveryFiles(deliveryId: string, imageIds: string[]) {
 }
 
 export async function deleteDeliveryFiles(deliveryId: string) {
-  const rows = await pb.collection('delivery_files').getFullList<DeliveryFileRecord>({
+  const rows = await listCollected<DeliveryFileRecord>('delivery_files', {
     filter: `delivery="${deliveryId.replaceAll('"', '')}"`,
   })
   await Promise.all(rows.map((row) => pb.collection('delivery_files').delete(row.id)))
 }
 
-export async function listDeliveryFiles(token: string) {
-  const safe = token.replaceAll('"', '')
-  const list = await pb.collection('deliveries').getList<DeliveryRecord>(1, 1, {
-    filter: `token="${safe}"`,
-    query: { token: safe },
-  })
-  const delivery = list.items[0]
-  if (!delivery) return []
-  return pb.collection('delivery_files').getFullList<DeliveryFileRecord>({
-    sort: 'sort,created',
-    filter: `delivery="${delivery.id}"`,
-    query: { token: safe },
-  })
-}
-
 export async function listDeliveryFilesFor(deliveryId: string) {
   const id = deliveryId.replaceAll('"', '')
-  return pb.collection('delivery_files').getFullList<DeliveryFileRecord>({
+  return listCollected<DeliveryFileRecord>('delivery_files', {
     filter: `delivery="${id}"`,
   })
 }
@@ -311,7 +335,7 @@ export async function restoreDelivery(id: string) {
 export async function deleteDelivery(id: string) {
   const safe = id.replaceAll('"', '')
   await deleteDeliveryFiles(safe)
-  const feedback = await pb.collection('delivery_feedback').getFullList<DeliveryFeedback>({
+  const feedback = await listCollected<DeliveryFeedback>('delivery_feedback', {
     filter: `delivery="${safe}"`,
   })
   await Promise.all(feedback.map((row) => pb.collection('delivery_feedback').delete(row.id)))
@@ -341,20 +365,39 @@ export function canResendGalleryEmail(d: Pick<DeliveryRecord, 'client_email' | '
   return isDeliveryActive(d) && Boolean(d.client_email?.trim())
 }
 
-/** Public: fetch delivery by secret token (query.token required by API rules). */
-export async function getDeliveryByToken(token: string) {
+/** Public: fetch delivery by long token or short share code. */
+export async function loadPublicDelivery(token: string) {
   try {
-    const list = await pb.collection('deliveries').getList<DeliveryRecord>(1, 1, {
-      filter: `token="${token.replaceAll('"', '\\"')}"`,
-      expand: 'images',
-      query: { token },
-    })
-    const delivery = list.items[0]
-    if (!delivery) throw new Error('Delivery not found.')
-    if (!isDeliveryActive(delivery)) throw new Error('This delivery link has expired or been revoked.')
-    return delivery
+    const res = await pb.send<{
+      delivery: DeliveryRecord
+      files: DeliveryFileRecord[]
+    }>(`/api/ibrahim/delivery-public/${encodeURIComponent(token)}`, { method: 'GET' })
+    const delivery = res?.delivery
+    if (!delivery?.token) throw new Error('Delivery not found.')
+    // Hook already rejected revoked/expired; only re-check revoked for safety.
+    if (delivery.revoked) throw new Error('This delivery link has expired or been revoked.')
+    return {
+      delivery,
+      files: Array.isArray(res.files) ? res.files : [],
+    }
   } catch (error) {
     throw new Error(pbErrorMessage(error, 'This delivery link is unavailable.'))
+  }
+}
+
+/** Public: fetch delivery by long token or short share code. */
+export async function getDeliveryByToken(token: string) {
+  const { delivery } = await loadPublicDelivery(token)
+  return delivery
+}
+
+/** Public: list delivery_files for a long token or short share code. */
+export async function listDeliveryFiles(token: string) {
+  try {
+    const { files } = await loadPublicDelivery(token)
+    return files
+  } catch {
+    return []
   }
 }
 
@@ -405,14 +448,25 @@ export async function submitDeliveryFeedback(input: {
 
 export async function listFeedback() {
   try {
-    return await pb.collection('delivery_feedback').getFullList<DeliveryFeedback>({
+    return await listCollected<DeliveryFeedback>('delivery_feedback', {
       sort: '-created',
       expand: 'delivery',
     })
   } catch {
-    return pb.collection('delivery_feedback').getFullList<DeliveryFeedback>({
+    return listCollected<DeliveryFeedback>('delivery_feedback', {
       sort: '-created',
     })
+  }
+}
+
+export async function listFeedbackPage(page: number, pageSize = 100) {
+  try {
+    return await listPage<DeliveryFeedback>('delivery_feedback', page, pageSize, {
+      sort: '-created',
+      expand: 'delivery',
+    })
+  } catch {
+    return listPage<DeliveryFeedback>('delivery_feedback', page, pageSize, { sort: '-created' })
   }
 }
 
@@ -433,7 +487,11 @@ export async function promoteFeedbackToTestimonial(feedback: DeliveryFeedback, q
 }
 
 export async function listInquiries() {
-  return pb.collection('form_inquiries').getFullList<FormInquiry>({ sort: '-created' })
+  return listCollected<FormInquiry>('form_inquiries', { sort: '-created' })
+}
+
+export async function listInquiriesPage(page: number, pageSize = 100) {
+  return listPage<FormInquiry>('form_inquiries', page, pageSize, { sort: '-created' })
 }
 
 export async function updateInquiryStatus(id: string, status: BookingStatus) {
@@ -586,7 +644,7 @@ function recordId(id: string) {
 
 export async function deliveriesForBooking(bookingId: string) {
   const id = recordId(bookingId)
-  return pb.collection('deliveries').getFullList<DeliveryRecord>({
+  return listCollected<DeliveryRecord>('deliveries', {
     filter: `booking="${id}"`,
   })
 }

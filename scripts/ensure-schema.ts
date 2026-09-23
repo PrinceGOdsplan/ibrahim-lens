@@ -2,7 +2,10 @@
  * Ensures Library-related PocketBase collections exist (idempotent).
  * Called from `npm run seed` after superuser auth.
  */
+import { webcrypto } from 'node:crypto'
 import type PocketBase from 'pocketbase'
+
+const crypto = webcrypto
 
 const AUTHED = '@request.auth.id != ""'
 const MIME = ['image/jpeg', 'image/png', 'image/webp']
@@ -42,6 +45,58 @@ async function ensureFields<T extends CollectionLike>(pb: PocketBase, collection
   })
   console.log(`Added field(s) to ${collection.name}: ${missing.map((f) => f.name).join(', ')}`)
   return updated as T
+}
+
+const SHORT_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+function randomShortCode(length = 8) {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  let out = ''
+  for (let i = 0; i < length; i++) out += SHORT_ALPHABET[bytes[i]! % SHORT_ALPHABET.length]
+  return out
+}
+
+async function backfillDeliveryShortCodes(pb: PocketBase) {
+  let missing: Array<{ id: string; short_code?: string }>
+  try {
+    missing = await pb.collection('deliveries').getFullList({
+      filter: 'short_code = ""',
+      fields: 'id,short_code',
+    })
+  } catch {
+    try {
+      missing = await pb.collection('deliveries').getFullList({
+        filter: 'short_code = null || short_code = ""',
+        fields: 'id,short_code',
+      })
+    } catch {
+      return
+    }
+  }
+  // Also catch records that somehow lack the field value after migration
+  const all = missing.length
+    ? missing
+    : (
+        await pb.collection('deliveries').getFullList<{ id: string; short_code?: string }>({
+          fields: 'id,short_code',
+        })
+      ).filter((row) => !String(row.short_code || '').trim())
+  if (!all.length) return
+  let filled = 0
+  for (const row of all) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const code = randomShortCode()
+      try {
+        await pb.collection('deliveries').update(row.id, { short_code: code })
+        filled++
+        break
+      } catch {
+        // unique collision — retry
+      }
+    }
+  }
+  if (filled) console.log(`Backfilled short_code on ${filled} deliveries`)
 }
 
 async function ensureVaultIncludesHeld<T extends CollectionLike>(pb: PocketBase, collection: T): Promise<T> {
@@ -631,11 +686,11 @@ export async function ensureClientsSchema(pb: PocketBase) {
   }
 
   const deliveryGuest =
-    'token != "" && token = @request.query.token && revoked != true && expires_at > @now'
+    'token != "" && (token = @request.query.token || short_code = @request.query.token) && revoked != true && expires_at > @now'
   const deliveryFeedbackGuest =
-    '@request.query.token != "" && delivery.token = @request.query.token && delivery.revoked != true && delivery.expires_at > @now'
+    '@request.query.token != "" && (delivery.token = @request.query.token || delivery.short_code = @request.query.token) && delivery.revoked != true && delivery.expires_at > @now'
   const mediaViaDelivery =
-    `@request.query.token != "" && @collection.deliveries.token = @request.query.token && @collection.deliveries.revoked != true && @collection.deliveries.expires_at > @now && @collection.deliveries.images.id ?= id`
+    `@request.query.token != "" && (@collection.deliveries.token = @request.query.token || @collection.deliveries.short_code = @request.query.token) && @collection.deliveries.revoked != true && @collection.deliveries.expires_at > @now && @collection.deliveries.images.id ?= id`
 
   let deliveries = await getCollection(pb, 'deliveries')
   if (!deliveries) {
@@ -649,6 +704,7 @@ export async function ensureClientsSchema(pb: PocketBase) {
       deleteRule: AUTHED,
       fields: [
         { name: 'token', type: 'text', required: true, min: 16, max: 64 },
+        { name: 'short_code', type: 'text', min: 6, max: 16 },
         { name: 'client_name', type: 'text', required: true, min: 1, max: 160 },
         { name: 'client_email', type: 'text', max: 120 },
         {
@@ -683,16 +739,29 @@ export async function ensureClientsSchema(pb: PocketBase) {
         { name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
         { name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
       ],
-      indexes: ['CREATE UNIQUE INDEX idx_deliveries_token ON deliveries (token)'],
+      indexes: [
+        'CREATE UNIQUE INDEX idx_deliveries_token ON deliveries (token)',
+        "CREATE UNIQUE INDEX idx_deliveries_short_code ON deliveries (short_code) WHERE short_code != ''",
+      ],
     })
     console.log('Created collection: deliveries')
   } else {
+    deliveries = await ensureFields(pb, deliveries, [
+      { name: 'short_code', type: 'text', min: 6, max: 16 },
+    ])
     await pb.collections.update(deliveries.id, {
       listRule: `${AUTHED} || (${deliveryGuest})`,
       viewRule: `${AUTHED} || (${deliveryGuest})`,
       createRule: AUTHED,
       updateRule: AUTHED,
       deleteRule: AUTHED,
+    })
+    await backfillDeliveryShortCodes(pb)
+    await pb.collections.update(deliveries.id, {
+      indexes: [
+        'CREATE UNIQUE INDEX idx_deliveries_token ON deliveries (token)',
+        "CREATE UNIQUE INDEX idx_deliveries_short_code ON deliveries (short_code) WHERE short_code != ''",
+      ],
     })
   }
 
@@ -746,7 +815,7 @@ export async function ensureClientsSchema(pb: PocketBase) {
 
   const maxSize = maxUploadBytes()
   const deliveryFileGuest =
-    '@request.query.token != "" && delivery.token = @request.query.token && delivery.revoked != true && delivery.expires_at > @now'
+    '@request.query.token != "" && (delivery.token = @request.query.token || delivery.short_code = @request.query.token) && delivery.revoked != true && delivery.expires_at > @now'
   let deliveryFiles = await getCollection(pb, 'delivery_files')
   if (!deliveryFiles) {
     deliveryFiles = await pb.collections.create({
@@ -1002,7 +1071,9 @@ export async function ensureStudioOpsSchema(pb: PocketBase) {
     await ensureFields(pb, deliveries, [
       { name: 'downloaded_at', type: 'date' },
       { name: 'expiry_mail_sent_at', type: 'date' },
+      { name: 'short_code', type: 'text', min: 6, max: 16 },
     ])
+    // Backfill + unique index are applied in ensureClientsSchema above when present.
   }
 
   let notices = await getCollection(pb, 'notification_settings')
