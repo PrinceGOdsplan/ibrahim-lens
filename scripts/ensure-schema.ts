@@ -61,15 +61,30 @@ async function backfillDeliveryShortCodes(pb: PocketBase) {
   let missing: Array<{ id: string; short_code?: string }>
   try {
     missing = await pb.collection('deliveries').getFullList({
-      filter: 'short_code = "" || short_code = null',
+      filter: 'short_code = ""',
       fields: 'id,short_code',
     })
   } catch {
-    return
+    try {
+      missing = await pb.collection('deliveries').getFullList({
+        filter: 'short_code = null || short_code = ""',
+        fields: 'id,short_code',
+      })
+    } catch {
+      return
+    }
   }
-  if (!missing.length) return
+  // Also catch records that somehow lack the field value after migration
+  const all = missing.length
+    ? missing
+    : (
+        await pb.collection('deliveries').getFullList<{ id: string; short_code?: string }>({
+          fields: 'id,short_code',
+        })
+      ).filter((row) => !String(row.short_code || '').trim())
+  if (!all.length) return
   let filled = 0
-  for (const row of missing) {
+  for (const row of all) {
     for (let attempt = 0; attempt < 6; attempt++) {
       const code = randomShortCode()
       try {
@@ -726,7 +741,7 @@ export async function ensureClientsSchema(pb: PocketBase) {
       ],
       indexes: [
         'CREATE UNIQUE INDEX idx_deliveries_token ON deliveries (token)',
-        'CREATE UNIQUE INDEX idx_deliveries_short_code ON deliveries (short_code)',
+        "CREATE UNIQUE INDEX idx_deliveries_short_code ON deliveries (short_code) WHERE short_code != ''",
       ],
     })
     console.log('Created collection: deliveries')
@@ -740,9 +755,12 @@ export async function ensureClientsSchema(pb: PocketBase) {
       createRule: AUTHED,
       updateRule: AUTHED,
       deleteRule: AUTHED,
+    })
+    await backfillDeliveryShortCodes(pb)
+    await pb.collections.update(deliveries.id, {
       indexes: [
         'CREATE UNIQUE INDEX idx_deliveries_token ON deliveries (token)',
-        'CREATE UNIQUE INDEX idx_deliveries_short_code ON deliveries (short_code)',
+        "CREATE UNIQUE INDEX idx_deliveries_short_code ON deliveries (short_code) WHERE short_code != ''",
       ],
     })
   }
@@ -1055,7 +1073,7 @@ export async function ensureStudioOpsSchema(pb: PocketBase) {
       { name: 'expiry_mail_sent_at', type: 'date' },
       { name: 'short_code', type: 'text', min: 6, max: 16 },
     ])
-    await backfillDeliveryShortCodes(pb)
+    // Backfill + unique index are applied in ensureClientsSchema above when present.
   }
 
   let notices = await getCollection(pb, 'notification_settings')
