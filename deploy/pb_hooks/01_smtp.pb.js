@@ -27,13 +27,15 @@ onBootstrap((e) => {
   try {
     var settings = $app.settings()
     var smtp = settings.smtp
+    // Port 587 is plaintext then STARTTLS. smtp.tls=true forces an immediate TLS
+    // dial and yields: "tls: first record does not look like a TLS handshake".
     if (
       smtp.enabled &&
       smtp.host === "smtp.resend.com" &&
       smtp.port === 587 &&
       smtp.username === "resend" &&
       smtp.password === key &&
-      smtp.tls === true &&
+      smtp.tls === false &&
       settings.meta.senderAddress === from &&
       settings.meta.senderName === fromName
     ) {
@@ -46,7 +48,7 @@ onBootstrap((e) => {
     smtp.port = 587
     smtp.username = "resend"
     smtp.password = key
-    smtp.tls = true
+    smtp.tls = false
     smtp.authMethod = "PLAIN"
     settings.meta.senderAddress = from
     settings.meta.senderName = fromName
