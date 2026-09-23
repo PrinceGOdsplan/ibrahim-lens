@@ -3,7 +3,7 @@
 function requestInfo(e) {
   try {
     return e.requestInfo()
-  } catch {
+  } catch (_) {
     return { query: {}, body: {} }
   }
 }
@@ -60,7 +60,7 @@ function guestRateLimit(bucket, max, windowMs) {
 function loadNoticeSettings() {
   try {
     return $app.findFirstRecordByFilter("notification_settings", 'key = "notifications"')
-  } catch {
+  } catch (_) {
     return null
   }
 }
@@ -83,7 +83,7 @@ function recordMailOk() {
 function smtpReady() {
   try {
     return Boolean($app.settings().smtp && $app.settings().smtp.enabled)
-  } catch {
+  } catch (_) {
     return false
   }
 }
@@ -93,7 +93,7 @@ function clientPrefOn(settings, field) {
   if (!settings) return true
   try {
     return settings.get(field) !== false
-  } catch {
+  } catch (_) {
     return true
   }
 }
@@ -104,7 +104,7 @@ function siteUrl() {
   try {
     const appURL = ($app.settings().meta.appURL || "").replace(/\/$/, "")
     if (appURL) return appURL
-  } catch {
+  } catch (_) {
     // fall through
   }
   return "https://ibrahimlens.com.ng"
@@ -145,7 +145,7 @@ function deliverySharePath(record) {
 function photographerRecord() {
   try {
     return $app.findFirstRecordByFilter("users", "email != ''")
-  } catch {
+  } catch (_) {
     return null
   }
 }
@@ -155,7 +155,7 @@ function parseJson(raw, fallback) {
   if (typeof raw === "object") return raw
   try {
     return JSON.parse(String(raw))
-  } catch {
+  } catch (_) {
     return fallback
   }
 }
@@ -199,7 +199,7 @@ function hasDate(record, field) {
   try {
     const dt = record.getDateTime(field)
     return dt && dt.time().unixMilli() > 100000
-  } catch {
+  } catch (_) {
     return false
   }
 }
@@ -229,7 +229,7 @@ function enqueuePush(title, body, url) {
   let rows = []
   try {
     rows = $app.findRecordsByFilter("push_subscriptions", "id != ''", "-created", 20, 0)
-  } catch {
+  } catch (_) {
     return 0
   }
   const pending = { title: title, body: body, url: url }
@@ -252,7 +252,7 @@ function enqueuePush(title, body, url) {
       if (msg.indexOf("HTTP 404") >= 0 || msg.indexOf("HTTP 410") >= 0) {
         try {
           $app.delete(rows[i])
-        } catch {
+        } catch (_) {
           /* expired endpoint */
         }
       }
@@ -297,7 +297,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -317,7 +317,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -413,7 +413,7 @@ onRecordCreateRequest((e) => {
   let info
   try {
     info = e.requestInfo()
-  } catch {
+  } catch (_) {
     info = { query: {}, body: {} }
   }
   const q = info.query || {}
@@ -466,27 +466,31 @@ onRecordCreateRequest((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   e.next()
-  if (e.auth) return
-  try {
-    const evCol = $app.findCollectionByNameOrId("booking_events")
-    const ev = new Record(evCol)
-    ev.set("booking", e.record.id)
-    ev.set("type", "created")
-    ev.set("actor", "public")
-    ev.set("before", {})
-    ev.set("after", {
-      status: e.record.getString("status"),
-      preferred_at: e.record.getString("preferred_at") || "",
-      studio_notes: "",
-      fee_ngn: 0,
-      amount_paid_ngn: 0,
-      person: e.record.getString("person"),
-    })
-    $app.save(ev)
-  } catch (err) {
-    console.log("booking created event failed: " + err)
+  const fromWebsite = e.record.getString("source") === "website"
+  // Public website bookings must notify even when a Studio session cookie is
+  // present (photographer testing Contact in the same browser).
+  if (!e.auth || fromWebsite) {
+    try {
+      const evCol = $app.findCollectionByNameOrId("booking_events")
+      const ev = new Record(evCol)
+      ev.set("booking", e.record.id)
+      ev.set("type", "created")
+      ev.set("actor", fromWebsite ? "public" : e.auth ? "studio" : "public")
+      ev.set("before", {})
+      ev.set("after", {
+        status: e.record.getString("status"),
+        preferred_at: e.record.getString("preferred_at") || "",
+        studio_notes: "",
+        fee_ngn: 0,
+        amount_paid_ngn: 0,
+        person: e.record.getString("person"),
+      })
+      $app.save(ev)
+    } catch (err) {
+      console.log("booking created event failed: " + err)
+    }
   }
-  if (e.record.getString("source") !== "website") return
+  if (!fromWebsite) return
   const origin = siteUrl()
   notifyPhotographerEvent(
     "booking",
@@ -548,8 +552,8 @@ onRecordAfterCreateSuccess((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   e.next()
-  if (e.auth) return
   if (e.record.getString("kind") !== "contact") return
+  // Public Write must notify even when a Studio session cookie is present.
   try {
   const origin = siteUrl()
   const payload = parseJson(e.record.get("payload"), {})
@@ -611,7 +615,7 @@ onRecordAfterCreateSuccess((e) => {
       } else {
         ids.push(rawImages)
       }
-    } catch {
+    } catch (_) {
       ids.push(rawImages)
     }
   } else if (rawImages && rawImages.length) {
@@ -1093,52 +1097,172 @@ routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
   let thumb = ""
   let download = false
   try {
-    if (e.request && e.request.formValue) {
-      thumb = String(e.request.formValue("thumb") || "")
-      download = String(e.request.formValue("dl") || "") === "1"
-    }
     if (e.request && e.request.url && e.request.url.query) {
       const query = e.request.url.query()
-      if (!thumb) thumb = String(query.get("thumb") || "")
-      if (!download) download = String(query.get("dl") || "") === "1"
+      thumb = String(query.get("thumb") || "")
+      download = String(query.get("dl") || "") === "1"
     }
-  } catch (_) {}
+  } catch (err) {
+    console.log("delivery-file query parse: " + err)
+  }
   const allowed = { "200x200": 1, "400x400": 1, "800x800": 1, "1200x0": 1, "1600x900": 1 }
-  const dataDir = $app.dataDir()
-  const baseDir = $filepath.join(dataDir, "storage", row.baseFilesPath())
-  let dir = baseDir
-  let name = stored
+  // Stamp download only after a successful serve (below).
+
+  const candidates = []
+  const deliveryBase = row.baseFilesPath()
   if (thumb && allowed[thumb]) {
-    const thumbDir = $filepath.join(baseDir, "thumbs_" + stored)
-    const thumbName = thumb + "_" + stored
+    candidates.push({
+      key: deliveryBase + "/thumbs_" + stored + "/" + thumb + "_" + stored,
+      name: thumb + "_" + stored,
+    })
+  }
+  candidates.push({ key: deliveryBase + "/" + stored, name: stored })
+
+  const mediaId = String(row.getString("media") || "")
+  if (mediaId) {
     try {
-      $os.dirFS(thumbDir).stat(thumbName)
-      dir = thumbDir
-      name = thumbName
-    } catch (_) {}
-  } else if (download && !hasDate(delivery, "downloaded_at")) {
-    try {
-      delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
-      $app.save(delivery)
-      const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
-      const inbox = new Record(inboxCol)
-      inbox.set("kind", "delivery_event")
-      inbox.set("payload", {
-        inbox_read: false,
-        event: "download",
-        delivery_id: delivery.id,
-        client_name: delivery.getString("client_name"),
-        media_id: row.getString("media") || row.id,
-      })
-      $app.save(inbox)
+      const media = $app.findRecordById("media", mediaId)
+      const mediaFile = String(media.get("file") || "")
+      if (mediaFile) {
+        const mediaBase = media.baseFilesPath()
+        if (thumb && allowed[thumb]) {
+          candidates.push({
+            key: mediaBase + "/thumbs_" + mediaFile + "/" + thumb + "_" + mediaFile,
+            name: thumb + "_" + mediaFile,
+          })
+        }
+        candidates.push({ key: mediaBase + "/" + mediaFile, name: mediaFile })
+      }
     } catch (err) {
-      console.log("delivery download stamp failed: " + err)
+      console.log("delivery-file media lookup failed: " + err)
     }
   }
+
   try {
     e.response.header().set("Cache-Control", "private, no-store")
   } catch (_) {}
-  return e.fileFS($os.dirFS(dir), name)
+
+  const dataDir = $app.dataDir()
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i]
+    const abs = $filepath.join(dataDir, "storage", cand.key)
+    const dir = $filepath.dir(abs)
+    const base = $filepath.base(abs)
+    try {
+      $os.dirFS(dir).stat(base)
+      if (download && !thumb) {
+        try {
+          e.response.header().set(
+            "Content-Disposition",
+            'attachment; filename="' + stored.replace(/"/g, "") + '"',
+          )
+        } catch (_) {}
+      }
+      if (download && !thumb) {
+        let alreadyDownloaded = false
+        try {
+          const dt = delivery.getDateTime("downloaded_at")
+          alreadyDownloaded = !!(dt && dt.time().unixMilli() > 100000)
+        } catch (_) {}
+        if (!alreadyDownloaded) {
+          try {
+            delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
+            $app.save(delivery)
+            const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
+            const inbox = new Record(inboxCol)
+            inbox.set("kind", "delivery_event")
+            inbox.set("payload", {
+              inbox_read: false,
+              event: "download",
+              delivery_id: delivery.id,
+              client_name: delivery.getString("client_name"),
+              media_id: row.getString("media") || row.id,
+            })
+            $app.save(inbox)
+          } catch (err) {
+            console.log("delivery download stamp failed: " + err)
+          }
+        }
+      }
+      return e.fileFS($os.dirFS(dir), base)
+    } catch (_) {}
+  }
+
+  let fsys
+  try {
+    fsys = $app.newFilesystem()
+  } catch (err) {
+    console.log("delivery-file newFilesystem failed: " + err)
+    throw new ApiError(500, "Storage unavailable.", {})
+  }
+  let lastErr = ""
+  try {
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i]
+      let reader
+      try {
+        try {
+          reader = fsys.getReader(cand.key)
+        } catch (_) {
+          reader = fsys.getFile(cand.key)
+        }
+        const bytes = toString(reader, 80 * 1024 * 1024)
+        try {
+          reader.close()
+        } catch (_) {}
+        reader = null
+        if (bytes == null || bytes === "") {
+          lastErr = "empty " + cand.key
+          continue
+        }
+        let contentType = "image/jpeg"
+        const lower = String(cand.name || "").toLowerCase()
+        if (lower.indexOf(".png") >= 0) contentType = "image/png"
+        else if (lower.indexOf(".webp") >= 0) contentType = "image/webp"
+        else if (lower.indexOf(".gif") >= 0) contentType = "image/gif"
+        if (download && !thumb) {
+          let alreadyDownloaded = false
+          try {
+            const dt = delivery.getDateTime("downloaded_at")
+            alreadyDownloaded = !!(dt && dt.time().unixMilli() > 100000)
+          } catch (_) {}
+          if (!alreadyDownloaded) {
+            try {
+              delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
+              $app.save(delivery)
+              const inboxCol = $app.findCollectionByNameOrId("form_inquiries")
+              const inbox = new Record(inboxCol)
+              inbox.set("kind", "delivery_event")
+              inbox.set("payload", {
+                inbox_read: false,
+                event: "download",
+                delivery_id: delivery.id,
+                client_name: delivery.getString("client_name"),
+                media_id: row.getString("media") || row.id,
+              })
+              $app.save(inbox)
+            } catch (err) {
+              console.log("delivery download stamp failed: " + err)
+            }
+          }
+        }
+        // SPA downloads use fetch+blob; attachment disposition is optional.
+        return e.blob(200, contentType, bytes)
+      } catch (err) {
+        lastErr = cand.key + ": " + err
+        console.log("delivery-file candidate failed: " + lastErr)
+        try {
+          if (reader) reader.close()
+        } catch (_) {}
+      }
+    }
+  } finally {
+    try {
+      fsys.close()
+    } catch (_) {}
+  }
+  console.log("delivery-file not found last=" + lastErr)
+  throw new NotFoundError("File not found.")
 })
 
 routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
@@ -1157,7 +1281,7 @@ routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
   let row
   try {
     row = $app.findFirstRecordByFilter("push_subscriptions", "device_secret = {:s}", { s: secret })
-  } catch {
+  } catch (_) {
     throw new NotFoundError()
   }
   const pending = parseJson(row.get("pending"), null)

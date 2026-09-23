@@ -13,9 +13,9 @@ import {
   type PersonRecord,
   createBooking,
   hubBookings,
-  listBookings,
+  listBookingsPage,
   listBookingsForPerson,
-  listPeople,
+  listPeoplePage,
   paymentLine,
   removeBooking,
   statusLabel,
@@ -36,9 +36,9 @@ import {
   filterInboxItems,
   formatTimeRemaining,
   isDeliveryActive,
-  listDeliveries,
-  listFeedback,
-  listInquiries,
+  listDeliveriesPage,
+  listFeedbackPage,
+  listInquiriesPage,
   markInquiryRead,
   personReferences,
   presentInboxItem,
@@ -51,6 +51,7 @@ import {
   updateFeedback,
 } from '@/lib/clients'
 import { listAlbumsWithCovers, listWork, mediaThumbUrl, type AlbumRecord, type MediaRecord, type WorkRecord } from '@/lib/library'
+import { STUDIO_LIST_PAGE } from '@/lib/list-pages'
 import { nationalFromE164 } from '@/lib/phone'
 import { BookOpen, FolderOpen, Images, Inbox, Link2, MessageCircle, Plus, Truck, Users } from 'lucide-react'
 import { StudioFullscreenModal } from '@/components/studio/StudioFullscreenModal'
@@ -357,15 +358,24 @@ export function StudioClientsPage() {
   /** Gates every empty state below: nothing is "clear" until the first load settles. */
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState<string[]>([])
+  const [listPages, setListPages] = useState({ people: 1, bookings: 1, deliveries: 1, feedback: 1, inbox: 1 })
+  const [listHasMore, setListHasMore] = useState({
+    people: false,
+    bookings: false,
+    deliveries: false,
+    feedback: false,
+    inbox: false,
+  })
+  const [loadingMore, setLoadingMore] = useState(false)
   const { confirm, dialog: confirmDialog } = useConfirm()
 
   const refresh = useCallback(async () => {
     const { values, failed: missing } = await settleAll({
-      People: listPeople,
-      Bookings: listBookings,
-      Deliveries: listDeliveries,
-      Feedback: listFeedback,
-      Inbox: listInquiries,
+      People: () => listPeoplePage(1, STUDIO_LIST_PAGE),
+      Bookings: () => listBookingsPage(1, STUDIO_LIST_PAGE),
+      Deliveries: () => listDeliveriesPage(1, STUDIO_LIST_PAGE),
+      Feedback: () => listFeedbackPage(1, STUDIO_LIST_PAGE),
+      Inbox: () => listInquiriesPage(1, STUDIO_LIST_PAGE),
       Albums: listAlbumsWithCovers,
       Work: listWork,
     })
@@ -374,15 +384,84 @@ export function StudioClientsPage() {
 
     // Only overwrite state for sources that answered, so a transient failure
     // does not blank a list the photographer was already looking at.
-    if (values.People) setPeople(values.People)
-    if (values.Bookings) setBookings(values.Bookings)
-    if (values.Deliveries) setDeliveries(values.Deliveries)
-    if (values.Feedback) setFeedback(values.Feedback)
-    if (values.Inbox) setInquiries(values.Inbox.filter((x) => x.kind !== 'booking'))
+    if (values.People) {
+      setPeople(values.People.items)
+      setListPages((p) => ({ ...p, people: 1 }))
+      setListHasMore((h) => ({ ...h, people: values.People!.hasMore }))
+    }
+    if (values.Bookings) {
+      setBookings(values.Bookings.items)
+      setListPages((p) => ({ ...p, bookings: 1 }))
+      setListHasMore((h) => ({ ...h, bookings: values.Bookings!.hasMore }))
+    }
+    if (values.Deliveries) {
+      setDeliveries(values.Deliveries.items)
+      setListPages((p) => ({ ...p, deliveries: 1 }))
+      setListHasMore((h) => ({ ...h, deliveries: values.Deliveries!.hasMore }))
+    }
+    if (values.Feedback) {
+      setFeedback(values.Feedback.items)
+      setListPages((p) => ({ ...p, feedback: 1 }))
+      setListHasMore((h) => ({ ...h, feedback: values.Feedback!.hasMore }))
+    }
+    if (values.Inbox) {
+      setInquiries(values.Inbox.items.filter((x) => x.kind !== 'booking'))
+      setListPages((p) => ({ ...p, inbox: 1 }))
+      setListHasMore((h) => ({ ...h, inbox: values.Inbox!.hasMore }))
+    }
     if (values.Albums) setAlbums(values.Albums)
     if (values.Work) setWork(values.Work)
     setFailed(missing)
   }, [])
+
+  async function loadMore(kind: keyof typeof listHasMore) {
+    if (!listHasMore[kind] || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const next = listPages[kind] + 1
+      if (kind === 'people') {
+        const page = await listPeoplePage(next, STUDIO_LIST_PAGE)
+        setPeople((prev) => {
+          const seen = new Set(prev.map((r) => r.id))
+          return [...prev, ...page.items.filter((r) => !seen.has(r.id))]
+        })
+        setListHasMore((h) => ({ ...h, people: page.hasMore }))
+      } else if (kind === 'bookings') {
+        const page = await listBookingsPage(next, STUDIO_LIST_PAGE)
+        setBookings((prev) => {
+          const seen = new Set(prev.map((r) => r.id))
+          return [...prev, ...page.items.filter((r) => !seen.has(r.id))]
+        })
+        setListHasMore((h) => ({ ...h, bookings: page.hasMore }))
+      } else if (kind === 'deliveries') {
+        const page = await listDeliveriesPage(next, STUDIO_LIST_PAGE)
+        setDeliveries((prev) => {
+          const seen = new Set(prev.map((r) => r.id))
+          return [...prev, ...page.items.filter((r) => !seen.has(r.id))]
+        })
+        setListHasMore((h) => ({ ...h, deliveries: page.hasMore }))
+      } else if (kind === 'feedback') {
+        const page = await listFeedbackPage(next, STUDIO_LIST_PAGE)
+        setFeedback((prev) => {
+          const seen = new Set(prev.map((r) => r.id))
+          return [...prev, ...page.items.filter((r) => !seen.has(r.id))]
+        })
+        setListHasMore((h) => ({ ...h, feedback: page.hasMore }))
+      } else {
+        const page = await listInquiriesPage(next, STUDIO_LIST_PAGE)
+        setInquiries((prev) => {
+          const seen = new Set(prev.map((r) => r.id))
+          return [...prev, ...page.items.filter((r) => r.kind !== 'booking' && !seen.has(r.id))]
+        })
+        setListHasMore((h) => ({ ...h, inbox: page.hasMore }))
+      }
+      setListPages((p) => ({ ...p, [kind]: next }))
+    } catch (e) {
+      setError(pbErrorMessage(e, 'Could not load more.'))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   const load = useCallback(() => {
     let alive = true
@@ -429,8 +508,12 @@ export function StudioClientsPage() {
 
   useEffect(() => {
     if (tab !== 'feedback') return
-    listFeedback()
-      .then(setFeedback)
+    listFeedbackPage(1, STUDIO_LIST_PAGE)
+      .then((page) => {
+        setFeedback(page.items)
+        setListPages((p) => ({ ...p, feedback: 1 }))
+        setListHasMore((h) => ({ ...h, feedback: page.hasMore }))
+      })
       .catch(() => undefined)
   }, [tab])
 
@@ -789,6 +872,25 @@ export function StudioClientsPage() {
               }}
             />
           ) : null}
+
+          {(() => {
+            const kind =
+              tab === 'deliveries'
+                ? 'deliveries'
+                : tab === 'feedback'
+                  ? 'feedback'
+                  : tab === 'people'
+                    ? 'people'
+                    : 'inbox'
+            if (!listHasMore[kind]) return null
+            return (
+              <div className="mt-4">
+                <Button type="button" variant="outline" disabled={loadingMore} onClick={() => void loadMore(kind)}>
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </Button>
+              </div>
+            )
+          })()}
 
           {confirmDialog}
         </StudioWorkSurface>

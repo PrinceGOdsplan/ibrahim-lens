@@ -71,7 +71,7 @@ export function StudioLayout() {
   const menuRef = useRef<HTMLDivElement>(null)
   const prevPath = useRef(location.pathname)
   const prevNoticeCount = useRef(0)
-  const { items, dismiss, dismissAll } = useStudioNotices()
+  const { items, toast, dismiss, dismissAll, dismissToast } = useStudioNotices()
   const hubLabel = currentHubLabel(location.pathname)
   const { appearance, toggleAppearance } = useStudioAppearance()
 
@@ -452,6 +452,35 @@ export function StudioLayout() {
           </aside>
 
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+            {toast ? (
+              <div
+                role="status"
+                className="pointer-events-none absolute inset-x-0 top-0 z-50 flex justify-center px-3 pt-3 md:justify-end md:px-4 md:pt-4"
+              >
+                <div className="pointer-events-auto flex max-w-sm items-start gap-3 border border-studio-border bg-studio-panel px-3 py-2.5 shadow-sm">
+                  <Link
+                    to={toast.href}
+                    className="min-w-0 flex-1 text-sm text-studio-fg"
+                    onClick={() => {
+                      dismiss(toast.id)
+                      dismissToast()
+                    }}
+                  >
+                    <span className="font-medium">{toast.title}</span>
+                    {toast.when ? (
+                      <span className="mt-0.5 block text-xs text-studio-muted">{toast.when}</span>
+                    ) : null}
+                  </Link>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs text-studio-muted hover:text-studio-fg"
+                    onClick={dismissToast}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="absolute inset-0 flex min-h-0 flex-col overflow-hidden">
               <Outlet />
             </div>
