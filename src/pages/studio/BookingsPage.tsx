@@ -35,8 +35,8 @@ import {
   hasUnpaidBalance,
   hubBookings,
   listBookingEvents,
-  listBookings,
-  listPeople,
+  listBookingsPage,
+  listPeoplePage,
   matchesHubView,
   outstandingNgn,
   parseHubView,
@@ -48,6 +48,7 @@ import {
 } from '@/lib/bookings'
 import { personReferences, removePerson } from '@/lib/clients'
 import { formatDateTime } from '@/lib/format'
+import { STUDIO_LIST_PAGE } from '@/lib/list-pages'
 import { useStudioRecordRefresh } from '@/lib/studio-record-sync'
 import { pbErrorMessage } from '@/lib/pb-error'
 import { settleAll } from '@/lib/useAsyncData'
@@ -322,6 +323,11 @@ export function StudioBookingsPage() {
 
   const [people, setPeople] = useState<PersonRecord[]>([])
   const [bookings, setBookings] = useState<BookingRecord[]>([])
+  const [peoplePage, setPeoplePage] = useState(1)
+  const [bookingsPage, setBookingsPage] = useState(1)
+  const [peopleHasMore, setPeopleHasMore] = useState(false)
+  const [bookingsHasMore, setBookingsHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [busyScope, setBusyScope] = useState<string | null>(null)
@@ -332,14 +338,60 @@ export function StudioBookingsPage() {
 
   const refresh = useCallback(async () => {
     const { values, failed: missing } = await settleAll({
-      People: listPeople,
-      Bookings: listBookings,
+      People: () => listPeoplePage(1, STUDIO_LIST_PAGE),
+      Bookings: () => listBookingsPage(1, STUDIO_LIST_PAGE),
     })
     setFailed(missing)
-    if (values.People) setPeople(values.People)
-    if (values.Bookings) setBookings(values.Bookings)
+    if (values.People) {
+      setPeople(values.People.items)
+      setPeoplePage(1)
+      setPeopleHasMore(values.People.hasMore)
+    }
+    if (values.Bookings) {
+      setBookings(values.Bookings.items)
+      setBookingsPage(1)
+      setBookingsHasMore(values.Bookings.hasMore)
+    }
     if (missing.length === 2) throw new Error('Could not load bookings.')
   }, [])
+
+  async function loadMoreBookings() {
+    if (!bookingsHasMore || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const next = bookingsPage + 1
+      const page = await listBookingsPage(next, STUDIO_LIST_PAGE)
+      setBookings((prev) => {
+        const seen = new Set(prev.map((b) => b.id))
+        return [...prev, ...page.items.filter((b) => !seen.has(b.id))]
+      })
+      setBookingsPage(next)
+      setBookingsHasMore(page.hasMore)
+    } catch (e) {
+      setError(pbErrorMessage(e, 'Could not load more bookings.'))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  async function loadMorePeople() {
+    if (!peopleHasMore || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const next = peoplePage + 1
+      const page = await listPeoplePage(next, STUDIO_LIST_PAGE)
+      setPeople((prev) => {
+        const seen = new Set(prev.map((p) => p.id))
+        return [...prev, ...page.items.filter((p) => !seen.has(p.id))]
+      })
+      setPeoplePage(next)
+      setPeopleHasMore(page.hasMore)
+    } catch (e) {
+      setError(pbErrorMessage(e, 'Could not load more people.'))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   const load = useCallback(() => {
     let alive = true
@@ -530,6 +582,20 @@ export function StudioBookingsPage() {
               return true
             }}
           />
+          {bookingsHasMore || peopleHasMore ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {bookingsHasMore ? (
+                <Button type="button" variant="outline" disabled={loadingMore} onClick={() => void loadMoreBookings()}>
+                  {loadingMore ? 'Loading…' : 'Load more bookings'}
+                </Button>
+              ) : null}
+              {peopleHasMore ? (
+                <Button type="button" variant="outline" disabled={loadingMore} onClick={() => void loadMorePeople()}>
+                  {loadingMore ? 'Loading…' : 'Load more people'}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           {confirmDialog}
         </StudioWorkSurface>
       ) : null}

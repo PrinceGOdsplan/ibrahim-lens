@@ -4,6 +4,7 @@ import { pbErrorMessage } from '@/lib/pb-error'
 import { listMediaByIds, type AlbumRecord, type MediaRecord, type WorkRecord } from '@/lib/library'
 import type { PersonRecord } from '@/lib/bookings'
 import { createTestimonial } from '@/lib/website'
+import { listCollected, listPage } from '@/lib/list-pages'
 
 export const DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -118,12 +119,12 @@ async function resolveImageIds(input: {
 export async function listDeliveries() {
   let rows: DeliveryRecord[]
   try {
-    rows = await pb.collection('deliveries').getFullList<DeliveryRecord>({
+    rows = await listCollected<DeliveryRecord>('deliveries', {
       sort: '-created',
       expand: 'albums,work,person',
     })
   } catch {
-    rows = await pb.collection('deliveries').getFullList<DeliveryRecord>({
+    rows = await listCollected<DeliveryRecord>('deliveries', {
       sort: '-created',
     })
   }
@@ -143,6 +144,17 @@ export async function listDeliveries() {
     }))
   } catch {
     return rows
+  }
+}
+
+export async function listDeliveriesPage(page: number, pageSize = 100) {
+  try {
+    return await listPage<DeliveryRecord>('deliveries', page, pageSize, {
+      sort: '-created',
+      expand: 'albums,work,person',
+    })
+  } catch {
+    return listPage<DeliveryRecord>('deliveries', page, pageSize, { sort: '-created' })
   }
 }
 
@@ -254,7 +266,7 @@ async function copyDeliveryFiles(deliveryId: string, imageIds: string[]) {
 }
 
 export async function deleteDeliveryFiles(deliveryId: string) {
-  const rows = await pb.collection('delivery_files').getFullList<DeliveryFileRecord>({
+  const rows = await listCollected<DeliveryFileRecord>('delivery_files', {
     filter: `delivery="${deliveryId.replaceAll('"', '')}"`,
   })
   await Promise.all(rows.map((row) => pb.collection('delivery_files').delete(row.id)))
@@ -268,7 +280,7 @@ export async function listDeliveryFiles(token: string) {
   })
   const delivery = list.items[0]
   if (!delivery) return []
-  return pb.collection('delivery_files').getFullList<DeliveryFileRecord>({
+  return listCollected<DeliveryFileRecord>('delivery_files', {
     sort: 'sort,created',
     filter: `delivery="${delivery.id}"`,
     query: { token: safe },
@@ -277,7 +289,7 @@ export async function listDeliveryFiles(token: string) {
 
 export async function listDeliveryFilesFor(deliveryId: string) {
   const id = deliveryId.replaceAll('"', '')
-  return pb.collection('delivery_files').getFullList<DeliveryFileRecord>({
+  return listCollected<DeliveryFileRecord>('delivery_files', {
     filter: `delivery="${id}"`,
   })
 }
@@ -311,7 +323,7 @@ export async function restoreDelivery(id: string) {
 export async function deleteDelivery(id: string) {
   const safe = id.replaceAll('"', '')
   await deleteDeliveryFiles(safe)
-  const feedback = await pb.collection('delivery_feedback').getFullList<DeliveryFeedback>({
+  const feedback = await listCollected<DeliveryFeedback>('delivery_feedback', {
     filter: `delivery="${safe}"`,
   })
   await Promise.all(feedback.map((row) => pb.collection('delivery_feedback').delete(row.id)))
@@ -405,14 +417,25 @@ export async function submitDeliveryFeedback(input: {
 
 export async function listFeedback() {
   try {
-    return await pb.collection('delivery_feedback').getFullList<DeliveryFeedback>({
+    return await listCollected<DeliveryFeedback>('delivery_feedback', {
       sort: '-created',
       expand: 'delivery',
     })
   } catch {
-    return pb.collection('delivery_feedback').getFullList<DeliveryFeedback>({
+    return listCollected<DeliveryFeedback>('delivery_feedback', {
       sort: '-created',
     })
+  }
+}
+
+export async function listFeedbackPage(page: number, pageSize = 100) {
+  try {
+    return await listPage<DeliveryFeedback>('delivery_feedback', page, pageSize, {
+      sort: '-created',
+      expand: 'delivery',
+    })
+  } catch {
+    return listPage<DeliveryFeedback>('delivery_feedback', page, pageSize, { sort: '-created' })
   }
 }
 
@@ -433,7 +456,11 @@ export async function promoteFeedbackToTestimonial(feedback: DeliveryFeedback, q
 }
 
 export async function listInquiries() {
-  return pb.collection('form_inquiries').getFullList<FormInquiry>({ sort: '-created' })
+  return listCollected<FormInquiry>('form_inquiries', { sort: '-created' })
+}
+
+export async function listInquiriesPage(page: number, pageSize = 100) {
+  return listPage<FormInquiry>('form_inquiries', page, pageSize, { sort: '-created' })
 }
 
 export async function updateInquiryStatus(id: string, status: BookingStatus) {
@@ -586,7 +613,7 @@ function recordId(id: string) {
 
 export async function deliveriesForBooking(bookingId: string) {
   const id = recordId(bookingId)
-  return pb.collection('deliveries').getFullList<DeliveryRecord>({
+  return listCollected<DeliveryRecord>('deliveries', {
     filter: `booking="${id}"`,
   })
 }

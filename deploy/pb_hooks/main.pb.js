@@ -434,27 +434,31 @@ onRecordCreateRequest((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   e.next()
-  if (e.auth) return
-  try {
-    const evCol = $app.findCollectionByNameOrId("booking_events")
-    const ev = new Record(evCol)
-    ev.set("booking", e.record.id)
-    ev.set("type", "created")
-    ev.set("actor", "public")
-    ev.set("before", {})
-    ev.set("after", {
-      status: e.record.getString("status"),
-      preferred_at: e.record.getString("preferred_at") || "",
-      studio_notes: "",
-      fee_ngn: 0,
-      amount_paid_ngn: 0,
-      person: e.record.getString("person"),
-    })
-    $app.save(ev)
-  } catch (err) {
-    console.log("booking created event failed: " + err)
+  const fromWebsite = e.record.getString("source") === "website"
+  // Public website bookings must notify even when a Studio session cookie is
+  // present (photographer testing Contact in the same browser).
+  if (!e.auth || fromWebsite) {
+    try {
+      const evCol = $app.findCollectionByNameOrId("booking_events")
+      const ev = new Record(evCol)
+      ev.set("booking", e.record.id)
+      ev.set("type", "created")
+      ev.set("actor", fromWebsite ? "public" : e.auth ? "studio" : "public")
+      ev.set("before", {})
+      ev.set("after", {
+        status: e.record.getString("status"),
+        preferred_at: e.record.getString("preferred_at") || "",
+        studio_notes: "",
+        fee_ngn: 0,
+        amount_paid_ngn: 0,
+        person: e.record.getString("person"),
+      })
+      $app.save(ev)
+    } catch (err) {
+      console.log("booking created event failed: " + err)
+    }
   }
-  if (e.record.getString("source") !== "website") return
+  if (!fromWebsite) return
   const origin = siteUrl()
   notifyPhotographerEvent(
     "booking",
@@ -516,8 +520,8 @@ onRecordAfterCreateSuccess((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   e.next()
-  if (e.auth) return
   if (e.record.getString("kind") !== "contact") return
+  // Public Write must notify even when a Studio session cookie is present.
   try {
   const origin = siteUrl()
   const payload = parseJson(e.record.get("payload"), {})
@@ -1035,6 +1039,20 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
   return e.html(200, html)
 })
 
+function deliveryFileExists(fsys, key) {
+  let reader
+  try {
+    reader = fsys.getReader ? fsys.getReader(key) : fsys.getFile(key)
+    return true
+  } catch (_) {
+    return false
+  } finally {
+    try {
+      if (reader) reader.close()
+    } catch (_) {}
+  }
+}
+
 routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
   const token = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
   const id = String((e.request && e.request.pathValue && e.request.pathValue("id")) || "")
@@ -1067,19 +1085,7 @@ routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
     }
   } catch (_) {}
   const allowed = { "200x200": 1, "400x400": 1, "800x800": 1, "1200x0": 1, "1600x900": 1 }
-  const dataDir = $app.dataDir()
-  const baseDir = $filepath.join(dataDir, "storage", row.baseFilesPath())
-  let dir = baseDir
-  let name = stored
-  if (thumb && allowed[thumb]) {
-    const thumbDir = $filepath.join(baseDir, "thumbs_" + stored)
-    const thumbName = thumb + "_" + stored
-    try {
-      $os.dirFS(thumbDir).stat(thumbName)
-      dir = thumbDir
-      name = thumbName
-    } catch (_) {}
-  } else if (download && !hasDate(delivery, "downloaded_at")) {
+  if (download && !thumb && !hasDate(delivery, "downloaded_at")) {
     try {
       delivery.set("downloaded_at", new Date().toISOString().replace("T", " "))
       $app.save(delivery)
@@ -1098,10 +1104,67 @@ routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
       console.log("delivery download stamp failed: " + err)
     }
   }
+
+  const candidates = []
+  const deliveryBase = row.baseFilesPath()
+  if (thumb && allowed[thumb]) {
+    candidates.push({
+      key: deliveryBase + "/thumbs_" + stored + "/" + thumb + "_" + stored,
+      name: thumb + "_" + stored,
+    })
+  }
+  candidates.push({ key: deliveryBase + "/" + stored, name: stored })
+
+  const mediaId = String(row.getString("media") || "")
+  if (mediaId) {
+    try {
+      const media = $app.findRecordById("media", mediaId)
+      const mediaFile = String(media.get("file") || "")
+      if (mediaFile) {
+        const mediaBase = media.baseFilesPath()
+        if (thumb && allowed[thumb]) {
+          candidates.push({
+            key: mediaBase + "/thumbs_" + mediaFile + "/" + thumb + "_" + mediaFile,
+            name: thumb + "_" + mediaFile,
+          })
+        }
+        candidates.push({ key: mediaBase + "/" + mediaFile, name: mediaFile })
+      }
+    } catch (_) {}
+  }
+
   try {
     e.response.header().set("Cache-Control", "private, no-store")
   } catch (_) {}
-  return e.fileFS($os.dirFS(dir), name)
+  if (download && !thumb) {
+    try {
+      e.response.header().set(
+        "Content-Disposition",
+        'attachment; filename="' + stored.replace(/"/g, "") + '"',
+      )
+    } catch (_) {}
+  }
+
+  const fsys = $app.newFilesystem()
+  try {
+    let served = false
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i]
+      if (!deliveryFileExists(fsys, cand.key)) continue
+      try {
+        fsys.serve(e.response, e.request, cand.key, cand.name)
+        served = true
+        break
+      } catch (serveErr) {
+        console.log("delivery-file serve failed " + cand.key + ": " + serveErr)
+      }
+    }
+    if (!served) throw new NotFoundError("File not found.")
+  } finally {
+    try {
+      fsys.close()
+    } catch (_) {}
+  }
 })
 
 routerAdd("GET", "/api/ibrahim/push-pending", (e) => {
