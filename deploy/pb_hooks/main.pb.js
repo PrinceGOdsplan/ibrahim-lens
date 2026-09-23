@@ -705,8 +705,9 @@ onRecordAfterCreateSuccess((e) => {
   if (!clientPrefOn(settings, "client_gallery")) return
   const email = (e.record.getString("client_email") || "").trim()
   if (!email) return
-  ensureDeliveryShortCode(e.record)
-  const origin = siteUrl()
+  const share = require(`${__hooks}/ibrahim_utils.js`)
+  share.ensureDeliveryShortCode(e.record)
+  const origin = share.siteUrl()
   const name = String(e.record.getString("client_name") || "there")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -721,7 +722,7 @@ onRecordAfterCreateSuccess((e) => {
           "<p>Hi " +
             name +
             ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-          origin + deliverySharePath(e.record),
+          origin + share.deliverySharePath(e.record),
           "Open your gallery",
         ),
       )
@@ -819,7 +820,6 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
     console.log("ibrahim-client-expiry-mail", err)
     return
   }
-  const origin = siteUrl()
   for (let i = 0; i < rows.length; i++) {
     const d = rows[i]
     if (hasDate(d, "downloaded_at") || hasDate(d, "expiry_mail_sent_at")) continue
@@ -830,6 +830,7 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
     try {
+      const share = require(`${__hooks}/ibrahim_utils.js`)
       if (
         sendMail(
           email,
@@ -839,7 +840,7 @@ cronAdd("ibrahim-client-expiry-mail", "20 * * * *", () => {
             "<p>Hi " +
               name +
               ",</p><p>Your gallery expires in about a day. Download your photographs if you have not already.</p>",
-            origin + deliverySharePath(d),
+            share.siteUrl() + share.deliverySharePath(d),
             "Open your gallery",
           ),
         )
@@ -858,6 +859,7 @@ routerAdd(
   "POST",
   "/api/ibrahim/resend-gallery",
   (e) => {
+    const share = require(`${__hooks}/ibrahim_utils.js`)
     const info = requestInfo(e)
     const body = info.body || {}
     const query = info.query || {}
@@ -879,8 +881,8 @@ routerAdd(
       throw new BadRequestError("Client gallery email is turned off in Settings → Notifications.")
     }
     if (!smtpReady()) throw new BadRequestError("Outbound mail is not configured.")
-    ensureDeliveryShortCode(delivery)
-    const origin = siteUrl()
+    share.ensureDeliveryShortCode(delivery)
+    const origin = share.siteUrl()
     const name = String(delivery.getString("client_name") || "there")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
@@ -895,7 +897,7 @@ routerAdd(
             "<p>Hi " +
               name +
               ",</p><p>Your photographs are ready to view and download. The link expires in 7 days.</p>",
-            origin + deliverySharePath(delivery),
+            origin + share.deliverySharePath(delivery),
             "Open your gallery",
           ),
         )
@@ -987,6 +989,8 @@ function escapeOg(value) {
 
 /** Crawler-facing HTML for Delivery share links (messengers do not run the SPA). */
 routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
+  // Handlers run in an isolated VM — load shared helpers via require (not top-level funcs).
+  const share = require(`${__hooks}/ibrahim_utils.js`)
   const code = String((e.request && e.request.pathValue && e.request.pathValue("token")) || "")
   if (!code) throw new NotFoundError("Not found.")
   let delivery
@@ -1003,11 +1007,11 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
   const exp = delivery.getDateTime("expires_at")
   if (exp.time().unixMilli() < Date.now()) throw new NotFoundError("Not found.")
 
-  const origin = siteUrl()
+  const origin = share.siteUrl()
   const clientName = String(delivery.getString("client_name") || "Client").trim() || "Client"
   const title = "Gallery for " + clientName
   const description = "Private photographs from Ibrahim Lens."
-  const pageUrl = origin + deliverySharePath(delivery)
+  const pageUrl = origin + share.deliverySharePath(delivery)
   const fileToken = delivery.getString("token")
   let imageUrl = origin + "/og-default.jpg"
   try {
@@ -1036,41 +1040,42 @@ routerAdd("GET", "/api/ibrahim/delivery-og/{token}", (e) => {
     }
   } catch (_) {}
 
+  const esc = share.escapeOg
   const html =
     "<!doctype html><html lang=\"en\"><head>" +
     "<meta charset=\"utf-8\"/>" +
     "<title>" +
-    escapeOg(title) +
+    esc(title) +
     " · Ibrahim Lens</title>" +
     "<meta property=\"og:type\" content=\"website\"/>" +
     "<meta property=\"og:site_name\" content=\"Ibrahim Lens\"/>" +
     "<meta property=\"og:title\" content=\"" +
-    escapeOg(title) +
+    esc(title) +
     "\"/>" +
     "<meta property=\"og:description\" content=\"" +
-    escapeOg(description) +
+    esc(description) +
     "\"/>" +
     "<meta property=\"og:url\" content=\"" +
-    escapeOg(pageUrl) +
+    esc(pageUrl) +
     "\"/>" +
     "<meta property=\"og:image\" content=\"" +
-    escapeOg(imageUrl) +
+    esc(imageUrl) +
     "\"/>" +
     "<meta name=\"twitter:card\" content=\"summary_large_image\"/>" +
     "<meta name=\"twitter:title\" content=\"" +
-    escapeOg(title) +
+    esc(title) +
     "\"/>" +
     "<meta name=\"twitter:description\" content=\"" +
-    escapeOg(description) +
+    esc(description) +
     "\"/>" +
     "<meta name=\"twitter:image\" content=\"" +
-    escapeOg(imageUrl) +
+    esc(imageUrl) +
     "\"/>" +
     "<link rel=\"canonical\" href=\"" +
-    escapeOg(pageUrl) +
+    esc(pageUrl) +
     "\"/>" +
     "</head><body><p>" +
-    escapeOg(title) +
+    esc(title) +
     "</p></body></html>"
 
   return e.html(200, html)

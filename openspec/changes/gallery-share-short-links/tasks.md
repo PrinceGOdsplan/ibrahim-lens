@@ -12,4 +12,4 @@
 ## 3. Verify
 
 - [x] 3.1 Lint/typecheck clean for touched files
-- [ ] 3.2 Smoke: create Delivery → copy short link → open gallery; long token still works; OG path with short code
+- [x] 3.2 Smoke: create Delivery → copy short link → open gallery; long token still works; OG path with short code
