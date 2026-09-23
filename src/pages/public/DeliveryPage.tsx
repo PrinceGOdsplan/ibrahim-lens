@@ -245,7 +245,7 @@ export function DeliveryPage() {
                 aria-label={`Open ${item.caption || 'photograph'} full size`}
               >
                 <img
-                  src={mediaThumbUrl(item, '400x400', token)}
+                  src={mediaThumbUrl(item, '400x400', delivery.token)}
                   alt={item.caption || 'Delivery photograph'}
                   // Deliveries can run to hundreds of frames; eager loading them
                   // all would saturate the client's connection on open.
@@ -319,7 +319,7 @@ export function DeliveryPage() {
           onClose={() => setImmersiveIndex(null)}
           onIndexChange={setImmersiveIndex}
           altFallback="Delivery image"
-          fileToken={token}
+          fileToken={delivery.token}
           watermark
         />
       ) : null}

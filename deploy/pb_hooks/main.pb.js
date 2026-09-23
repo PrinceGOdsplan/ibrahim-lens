@@ -1174,7 +1174,11 @@ routerAdd("GET", "/api/ibrahim/delivery-file/{token}/{id}/{filename}", (e) => {
   try {
     delivery = $app.findFirstRecordByFilter("deliveries", "token = {:token}", { token: token })
   } catch (_) {
-    throw new NotFoundError("Not found.")
+    try {
+      delivery = $app.findFirstRecordByFilter("deliveries", "short_code = {:token}", { token: token })
+    } catch (_) {
+      throw new NotFoundError("Not found.")
+    }
   }
   if (delivery.getBool("revoked")) throw new NotFoundError("Not found.")
   const exp = delivery.getDateTime("expires_at")

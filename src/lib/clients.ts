@@ -132,18 +132,7 @@ async function resolveImageIds(input: {
   return ids
 }
 
-export async function listDeliveries() {
-  let rows: DeliveryRecord[]
-  try {
-    rows = await listCollected<DeliveryRecord>('deliveries', {
-      sort: '-created',
-      expand: 'albums,work,person',
-    })
-  } catch {
-    rows = await listCollected<DeliveryRecord>('deliveries', {
-      sort: '-created',
-    })
-  }
+async function withDeliveryPreviewMedia(rows: DeliveryRecord[]) {
   const previewIds = rows.flatMap((row) => (Array.isArray(row.images) ? row.images.slice(0, 4) : []))
   if (!previewIds.length) return rows
   try {
@@ -163,14 +152,34 @@ export async function listDeliveries() {
   }
 }
 
-export async function listDeliveriesPage(page: number, pageSize = 100) {
+export async function listDeliveries() {
+  let rows: DeliveryRecord[]
   try {
-    return await listPage<DeliveryRecord>('deliveries', page, pageSize, {
+    rows = await listCollected<DeliveryRecord>('deliveries', {
       sort: '-created',
       expand: 'albums,work,person',
     })
   } catch {
-    return listPage<DeliveryRecord>('deliveries', page, pageSize, { sort: '-created' })
+    rows = await listCollected<DeliveryRecord>('deliveries', {
+      sort: '-created',
+    })
+  }
+  return withDeliveryPreviewMedia(rows)
+}
+
+export async function listDeliveriesPage(page: number, pageSize = 100) {
+  let pageResult
+  try {
+    pageResult = await listPage<DeliveryRecord>('deliveries', page, pageSize, {
+      sort: '-created',
+      expand: 'albums,work,person',
+    })
+  } catch {
+    pageResult = await listPage<DeliveryRecord>('deliveries', page, pageSize, { sort: '-created' })
+  }
+  return {
+    ...pageResult,
+    items: await withDeliveryPreviewMedia(pageResult.items),
   }
 }
 
