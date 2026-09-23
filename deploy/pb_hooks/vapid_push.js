@@ -6,6 +6,7 @@ const eceBytesToSendBody = ece.eceBytesToSendBody
 
 const P256_P = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn
 const P256_N = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n
+const P256_A = -3n // secp256r1 / P-256
 const P256_GX = 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n
 const P256_GY = 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5n
 const B64ABC = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -103,7 +104,8 @@ function pointAdd(p1, p2) {
   if (x1 === x2 && mod(y1 + y2, P256_P) === 0n) return null
   let m
   if (x1 === x2 && y1 === y2) {
-    m = mod(3n * x1 * x1 * invMod(2n * y1, P256_P), P256_P)
+    // λ = (3x² + a) / (2y) with a = -3 for P-256
+    m = mod((3n * x1 * x1 + P256_A) * invMod(2n * y1, P256_P), P256_P)
   } else {
     m = mod((y2 - y1) * invMod(x2 - x1, P256_P), P256_P)
   }
@@ -174,21 +176,18 @@ function createVapidJwt(audience, subject) {
   return signing + "." + bytesToB64url(sig)
 }
 
-function deriveVapidPublicFromPrivate(privB64) {
-  const d = bytesToInt(b64urlToBytes(privB64)) % P256_N
-  if (!d) return ""
-  const pt = pointMul(d, [P256_GX, P256_GY])
-  if (!pt) return ""
-  return bytesToB64url([0x04].concat(intToBytes(pt[0], 32), intToBytes(pt[1], 32)))
-}
-
 function vapidPublicKey() {
   const fromEnv = ($os.getenv("VAPID_PUBLIC_KEY") || "").trim()
   if (fromEnv) return fromEnv
+  // Fallback: derive from private (P-256 a=-3). Prefer setting VAPID_PUBLIC_KEY in env.
   const priv = ($os.getenv("VAPID_PRIVATE_KEY") || "").trim()
   if (!priv) return ""
   try {
-    return deriveVapidPublicFromPrivate(priv)
+    const d = bytesToInt(b64urlToBytes(priv)) % P256_N
+    if (!d) return ""
+    const pt = pointMul(d, [P256_GX, P256_GY])
+    if (!pt) return ""
+    return bytesToB64url([0x04].concat(intToBytes(pt[0], 32), intToBytes(pt[1], 32)))
   } catch (_) {
     return ""
   }
